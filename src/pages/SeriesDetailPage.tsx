@@ -1,86 +1,53 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { X, Play, Star, Clock, Calendar, User, Building, ChevronDown, ChevronUp, Heart, Share2, ArrowLeft } from 'lucide-react';
+import { Play, Star, Clock, Calendar, User, Building, ChevronDown, ChevronUp, Heart, Share2, ArrowLeft } from 'lucide-react';
 import { Series, Episode } from '../types';
 import Header from '../components/Header';
 import EpisodeGrid from '../components/EpisodeGrid';
 import Footer from '../components/Footer';
-import { createSlug } from '../utils/slugUtils';
 
 const SeriesDetailPage: React.FC = () => {
-  const { seriesSlug } = useParams<{ seriesSlug: string }>();
+  const { seriesId } = useParams<{ seriesId: string }>();
   const navigate = useNavigate();
   
   const [series, setSeries] = useState<Series | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
-  const [debugInfo, setDebugInfo] = useState<any>(null);
 
-  // Load series data based on slug
+  // Load series data based on ID
   useEffect(() => {
-    if (seriesSlug) {
+    if (seriesId) {
       loadSeriesData();
     }
-  }, [seriesSlug]);
+  }, [seriesId]);
 
   const loadSeriesData = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      console.log(`🔍 SeriesDetailPage: Looking for series with slug: "${seriesSlug}"`);
+      console.log(`🔍 SeriesDetailPage: Looking for series with ID: "${seriesId}"`);
 
       // Get all series from database
       const response = await fetch('http://localhost:3001/api/series');
       const data = await response.json();
       
-      console.log('📊 API Response:', data);
-      
       if (data.success) {
-        console.log('📊 Available series from database:', data.series.length);
-        
-        // Debug: Show all series with their generated slugs
-        const seriesWithSlugs = data.series.map((s: any) => {
-          const generatedSlug = createSlug(s.title);
-          console.log(`🔗 Series: "${s.title}" → slug: "${generatedSlug}"`);
-          return {
-            id: s.id,
-            title: s.title,
-            slug: generatedSlug,
-            originalData: s
-          };
-        });
-
-        setDebugInfo({
-          searchSlug: seriesSlug,
-          availableSeries: seriesWithSlugs,
-          totalSeries: data.series.length
-        });
-
-        // Find series by slug - CASE INSENSITIVE
-        const foundSeries = data.series.find((s: any) => {
-          const generatedSlug = createSlug(s.title);
-          const match = generatedSlug.toLowerCase() === seriesSlug?.toLowerCase();
-          console.log(`🔗 Comparing "${generatedSlug}" with "${seriesSlug}" → ${match ? '✅ MATCH' : '❌ NO MATCH'}`);
-          return match;
-        });
+        // Find series by ID
+        const foundSeries = data.series.find((s: any) => s.id === seriesId);
 
         if (!foundSeries) {
-          console.error(`❌ No series found for slug: "${seriesSlug}"`);
-          console.log('🔍 Available slugs:', seriesWithSlugs.map(s => s.slug));
-          setError(`Series không tồn tại. Slug tìm kiếm: "${seriesSlug}"`);
+          console.error(`❌ No series found for ID: "${seriesId}"`);
+          setError(`Series không tồn tại. ID: "${seriesId}"`);
           return;
         }
 
         console.log(`✅ Found series: "${foundSeries.title}" (ID: ${foundSeries.id})`);
 
         // Load episodes for this series
-        console.log(`📺 Loading episodes for series ID: ${foundSeries.id}`);
         const episodesResponse = await fetch(`http://localhost:3001/api/series/${foundSeries.id}/episodes`);
         const episodesData = await episodesResponse.json();
-        
-        console.log('📺 Episodes API Response:', episodesData);
         
         const episodes: Episode[] = episodesData.success ? episodesData.episodes.map((ep: any) => ({
           id: ep.id,
@@ -105,8 +72,6 @@ const SeriesDetailPage: React.FC = () => {
           hasVideo: ep.hasVideo || false
         })) : [];
 
-        console.log(`📺 Loaded ${episodes.length} episodes`);
-
         const seriesData: Series = {
           id: foundSeries.id,
           title: foundSeries.title,
@@ -127,15 +92,13 @@ const SeriesDetailPage: React.FC = () => {
           episodes: episodes,
           totalDuration: foundSeries.total_duration || '24 phút/tập',
           status: foundSeries.status || 'ongoing',
-          comments: [], // Mock comments for now
-          similarSeries: [], // Mock similar series for now
-          topEpisodes: episodes.slice(0, 3).map(ep => ep.id) // Top 3 episodes
+          comments: [],
+          similarSeries: [],
+          topEpisodes: episodes.slice(0, 3).map(ep => ep.id)
         };
 
-        console.log('✅ Series data prepared:', seriesData);
         setSeries(seriesData);
       } else {
-        console.error('❌ API Error:', data.error);
         setError('Không thể tải dữ liệu series từ database');
       }
     } catch (error) {
@@ -148,9 +111,8 @@ const SeriesDetailPage: React.FC = () => {
 
   const handlePlayEpisode = (episode: Episode) => {
     if (series) {
-      const slug = createSlug(series.title);
-      console.log(`🎬 Playing episode ${episode.number}: /movie/${slug}/tap-${episode.number}`);
-      navigate(`/movie/${slug}/tap-${episode.number}`);
+      console.log(`🎬 Playing episode ${episode.number}: /series/${series.id}/episode/${episode.number}`);
+      navigate(`/series/${series.id}/episode/${episode.number}`);
     }
   };
 
@@ -170,8 +132,7 @@ const SeriesDetailPage: React.FC = () => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-white text-xl">Đang tải thông tin series...</p>
-          <p className="text-gray-400 text-sm mt-2">Slug: {seriesSlug}</p>
-          <p className="text-gray-400 text-xs mt-1">Đang kết nối database...</p>
+          <p className="text-gray-400 text-sm mt-2">ID: {seriesId}</p>
         </div>
       </div>
     );
@@ -184,40 +145,8 @@ const SeriesDetailPage: React.FC = () => {
           <div className="text-red-400 text-6xl mb-4">⚠️</div>
           <h1 className="text-4xl font-bold text-white mb-4">404</h1>
           <h2 className="text-2xl font-bold text-white mb-4">Trang không tồn tại</h2>
-          <p className="text-xl text-gray-300 mb-4">Xin lỗi, trang bạn đang tìm kiếm không tồn tại hoặc đã bị di chuyển.</p>
+          <p className="text-xl text-gray-300 mb-4">{error}</p>
           
-          {/* Debug Information */}
-          {debugInfo && (
-            <div className="bg-gray-800 rounded-lg p-6 mb-8 text-left">
-              <h3 className="text-white font-semibold mb-4">🔍 Debug Information:</h3>
-              <div className="space-y-2 text-sm">
-                <p className="text-gray-300">
-                  <span className="text-blue-400">Slug tìm kiếm:</span> "{debugInfo.searchSlug}"
-                </p>
-                <p className="text-gray-300">
-                  <span className="text-blue-400">Tổng series trong DB:</span> {debugInfo.totalSeries}
-                </p>
-                <div className="text-gray-300">
-                  <span className="text-blue-400">Series có sẵn:</span>
-                  <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
-                    {debugInfo.availableSeries.map((s: any, index: number) => (
-                      <div key={index} className="text-xs bg-gray-700 p-2 rounded">
-                        <span className="text-green-400">"{s.title}"</span> → 
-                        <span className="text-yellow-400"> "{s.slug}"</span>
-                        <button
-                          onClick={() => navigate(`/movie/${s.slug}`)}
-                          className="ml-2 text-blue-400 hover:text-blue-300 underline"
-                        >
-                          Thử link này
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
               onClick={handleGoBack}
