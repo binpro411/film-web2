@@ -18,6 +18,7 @@ export interface Episode {
   sourceUrl?: string; // URL from crawled data
   videoUrl?: string; // Custom uploaded video URL
   hlsUrl?: string; // HLS manifest URL for streaming
+  hasVideo?: boolean; // Whether video is available
 }
 
 export interface Comment {
@@ -78,6 +79,7 @@ export interface Movie {
   episodeCount?: number;
   airDay?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
   airTime?: string;
+  slug?: string; // URL slug for routing
 }
 
 export interface Genre {
