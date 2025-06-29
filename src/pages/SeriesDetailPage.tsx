@@ -5,6 +5,7 @@ import { Series, Episode } from '../types';
 import Header from '../components/Header';
 import EpisodeGrid from '../components/EpisodeGrid';
 import Footer from '../components/Footer';
+import { createSlug } from '../utils/slugUtils';
 
 const SeriesDetailPage: React.FC = () => {
   const { seriesSlug } = useParams<{ seriesSlug: string }>();
@@ -14,16 +15,6 @@ const SeriesDetailPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
-
-  // Utility function to create URL slug from title
-  const createSlug = (title: string): string => {
-    return title
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .trim();
-  };
 
   // Load series data based on slug
   useEffect(() => {
@@ -37,20 +28,32 @@ const SeriesDetailPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
 
+      console.log(`🔍 Looking for series with slug: "${seriesSlug}"`);
+
       // Get all series from database
       const response = await fetch('http://localhost:3001/api/series');
       const data = await response.json();
       
       if (data.success) {
+        console.log('📊 Available series:', data.series.map((s: any) => ({
+          title: s.title,
+          slug: createSlug(s.title)
+        })));
+
         // Find series by slug
-        const foundSeries = data.series.find((s: any) => 
-          createSlug(s.title) === seriesSlug
-        );
+        const foundSeries = data.series.find((s: any) => {
+          const generatedSlug = createSlug(s.title);
+          console.log(`🔗 Comparing "${generatedSlug}" with "${seriesSlug}"`);
+          return generatedSlug === seriesSlug;
+        });
 
         if (!foundSeries) {
+          console.error(`❌ No series found for slug: "${seriesSlug}"`);
           setError('Series không tồn tại');
           return;
         }
+
+        console.log(`✅ Found series: "${foundSeries.title}"`);
 
         // Load episodes for this series
         const episodesResponse = await fetch(`http://localhost:3001/api/series/${foundSeries.id}/episodes`);
@@ -119,6 +122,7 @@ const SeriesDetailPage: React.FC = () => {
   const handlePlayEpisode = (episode: Episode) => {
     if (series) {
       const slug = createSlug(series.title);
+      console.log(`🎬 Playing episode ${episode.number}: /movie/${slug}/tap-${episode.number}`);
       navigate(`/movie/${slug}/tap-${episode.number}`);
     }
   };
@@ -139,6 +143,7 @@ const SeriesDetailPage: React.FC = () => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-white text-xl">Đang tải thông tin series...</p>
+          <p className="text-gray-400 text-sm mt-2">Slug: {seriesSlug}</p>
         </div>
       </div>
     );
@@ -150,7 +155,8 @@ const SeriesDetailPage: React.FC = () => {
         <div className="text-center">
           <div className="text-red-400 text-6xl mb-4">⚠️</div>
           <h1 className="text-4xl font-bold text-white mb-4">Series không tồn tại</h1>
-          <p className="text-xl text-gray-300 mb-8">{error || 'Không tìm thấy series này'}</p>
+          <p className="text-xl text-gray-300 mb-4">{error || 'Không tìm thấy series này'}</p>
+          <p className="text-gray-400 text-sm mb-8">Slug tìm kiếm: "{seriesSlug}"</p>
           <button
             onClick={handleGoBack}
             className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors flex items-center space-x-2 mx-auto"

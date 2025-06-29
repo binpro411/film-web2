@@ -5,6 +5,7 @@ import { Series, Episode } from '../types';
 import HLSVideoPlayer from '../components/HLSVideoPlayer';
 import VideoUploadModal from '../components/VideoUploadModal';
 import { useAuth } from '../contexts/AuthContext';
+import { createSlug } from '../utils/slugUtils';
 
 const EpisodePlayerPage: React.FC = () => {
   const { seriesSlug, episodeNumber } = useParams<{ seriesSlug: string; episodeNumber: string }>();
@@ -33,16 +34,6 @@ const EpisodePlayerPage: React.FC = () => {
   const isLoadingRef = useRef(false);
   const resumePromptCheckedRef = useRef(false);
 
-  // Utility function to create URL slug from title
-  const createSlug = (title: string): string => {
-    return title
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .trim();
-  };
-
   // Load series and episode data
   useEffect(() => {
     if (seriesSlug && episodeNumber) {
@@ -55,20 +46,32 @@ const EpisodePlayerPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
 
+      console.log(`🔍 Looking for series with slug: "${seriesSlug}", episode: ${episodeNumber}`);
+
       // Get all series from database
       const response = await fetch('http://localhost:3001/api/series');
       const data = await response.json();
       
       if (data.success) {
+        console.log('📊 Available series:', data.series.map((s: any) => ({
+          title: s.title,
+          slug: createSlug(s.title)
+        })));
+
         // Find series by slug
-        const foundSeries = data.series.find((s: any) => 
-          createSlug(s.title) === seriesSlug
-        );
+        const foundSeries = data.series.find((s: any) => {
+          const generatedSlug = createSlug(s.title);
+          console.log(`🔗 Comparing "${generatedSlug}" with "${seriesSlug}"`);
+          return generatedSlug === seriesSlug;
+        });
 
         if (!foundSeries) {
+          console.error(`❌ No series found for slug: "${seriesSlug}"`);
           setError('Series không tồn tại');
           return;
         }
+
+        console.log(`✅ Found series: "${foundSeries.title}"`);
 
         // Load episodes for this series
         const episodesResponse = await fetch(`http://localhost:3001/api/series/${foundSeries.id}/episodes`);
@@ -129,10 +132,12 @@ const EpisodePlayerPage: React.FC = () => {
         const episode = episodes.find(ep => ep.number === epNum);
         
         if (!episode) {
+          console.error(`❌ Episode ${episodeNumber} not found in series "${foundSeries.title}"`);
           setError(`Tập ${episodeNumber} không tồn tại`);
           return;
         }
 
+        console.log(`✅ Found episode ${epNum}: "${episode.title}"`);
         setCurrentEpisode(episode);
         
         // Load video data for this episode
@@ -240,6 +245,7 @@ const EpisodePlayerPage: React.FC = () => {
       
       if (nextEpisode) {
         const slug = createSlug(series.title);
+        console.log(`⏭️ Next episode: /movie/${slug}/tap-${nextEpisode.number}`);
         navigate(`/movie/${slug}/tap-${nextEpisode.number}`);
       }
     }
@@ -252,6 +258,7 @@ const EpisodePlayerPage: React.FC = () => {
       
       if (prevEpisode) {
         const slug = createSlug(series.title);
+        console.log(`⏮️ Previous episode: /movie/${slug}/tap-${prevEpisode.number}`);
         navigate(`/movie/${slug}/tap-${prevEpisode.number}`);
       }
     }
@@ -260,6 +267,7 @@ const EpisodePlayerPage: React.FC = () => {
   const handleEpisodeChange = (episode: Episode) => {
     if (series) {
       const slug = createSlug(series.title);
+      console.log(`🔄 Episode change: /movie/${slug}/tap-${episode.number}`);
       navigate(`/movie/${slug}/tap-${episode.number}`);
     }
   };
@@ -337,6 +345,7 @@ const EpisodePlayerPage: React.FC = () => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-white text-xl">Đang tải episode...</p>
+          <p className="text-gray-400 text-sm mt-2">Slug: {seriesSlug}, Episode: {episodeNumber}</p>
         </div>
       </div>
     );
@@ -348,7 +357,10 @@ const EpisodePlayerPage: React.FC = () => {
         <div className="text-center">
           <div className="text-red-400 text-6xl mb-4">⚠️</div>
           <h1 className="text-4xl font-bold text-white mb-4">Episode không tồn tại</h1>
-          <p className="text-xl text-gray-300 mb-8">{error || 'Không tìm thấy episode này'}</p>
+          <p className="text-xl text-gray-300 mb-4">{error || 'Không tìm thấy episode này'}</p>
+          <p className="text-gray-400 text-sm mb-8">
+            Slug: "{seriesSlug}", Episode: {episodeNumber}
+          </p>
           <button
             onClick={handleGoBack}
             className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors flex items-center space-x-2 mx-auto"
