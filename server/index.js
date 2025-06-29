@@ -572,7 +572,7 @@ app.post('/api/series/:seriesId/episodes', async (req, res) => {
   }
 });
 
-// Upload video endpoint
+// Upload video endpoint - FIXED: Proper number validation
 app.post('/api/upload-video', upload.single('video'), async (req, res) => {
   console.log('🎬 Video upload request received');
   console.log('📋 Request body:', req.body);
@@ -597,6 +597,17 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
       });
     }
 
+    // FIXED: Validate and parse episodeNumber properly
+    const episodeNum = parseInt(episodeNumber);
+    if (isNaN(episodeNum) || episodeNum < 1) {
+      return res.status(400).json({ 
+        success: false,
+        error: `Invalid episode number: "${episodeNumber}". Must be a positive integer.`
+      });
+    }
+
+    console.log(`📊 Parsed episode number: ${episodeNum} (type: ${typeof episodeNum})`);
+
     // Get series title for folder structure
     const seriesResult = await client.query('SELECT title FROM series WHERE id = $1', [seriesId]);
     if (seriesResult.rows.length === 0) {
@@ -614,7 +625,7 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
     console.log(`📊 File: ${uploadedFile.originalname} (${uploadedFile.size} bytes)`);
 
     // Create segments path using series ID and episode number
-    const segmentsPath = createSegmentsPath(seriesId, parseInt(episodeNumber));
+    const segmentsPath = createSegmentsPath(seriesId, episodeNum);
     await fs.ensureDir(segmentsPath);
 
     // Move uploaded file to segments directory for processing
@@ -636,12 +647,12 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
     // Get episode_id if exists
     const episodeResult = await client.query(
       'SELECT id FROM episodes WHERE series_id = $1 AND number = $2',
-      [seriesId, parseInt(episodeNumber)]
+      [seriesId, episodeNum]
     );
 
     const episodeId = episodeResult.rows.length > 0 ? episodeResult.rows[0].id : null;
 
-    // Insert video record into PostgreSQL
+    // FIXED: Insert video record with proper integer values
     const insertVideoQuery = `
       INSERT INTO videos (
         title, series_id, episode_id, episode_number, original_filename, safe_filename,
@@ -650,11 +661,25 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
       RETURNING id
     `;
 
+    console.log('💾 Inserting video record with values:', {
+      title,
+      seriesId,
+      episodeId,
+      episodeNumber: episodeNum, // Make sure this is a number
+      originalFilename: uploadedFile.originalname,
+      safeFilename: uploadedFile.filename,
+      duration: metadata.duration,
+      fileSize: metadata.size,
+      videoPath: finalVideoPath,
+      status: 'processing',
+      seriesTitle
+    });
+
     const result = await client.query(insertVideoQuery, [
       title,
       seriesId,
       episodeId,
-      parseInt(episodeNumber),
+      episodeNum, // Use the parsed integer
       uploadedFile.originalname,
       uploadedFile.filename,
       metadata.duration,
@@ -669,7 +694,7 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
 
     // Start FFmpeg processing in background
     console.log('🔄 Starting FFmpeg HLS segmentation...');
-    processVideoWithFFmpeg(videoId, finalVideoPath, segmentsPath, metadata.duration, seriesId, parseInt(episodeNumber));
+    processVideoWithFFmpeg(videoId, finalVideoPath, segmentsPath, metadata.duration, seriesId, episodeNum);
 
     res.json({
       success: true,
@@ -686,7 +711,8 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
         safeFilename: uploadedFile.filename,
         videoPath: finalVideoPath,
         segmentsPath: segmentsPath,
-        seriesId: seriesId
+        seriesId: seriesId,
+        episodeNumber: episodeNum
       }
     });
 
@@ -1037,14 +1063,23 @@ app.get('/api/video/:seriesId/:episodeNumber', async (req, res) => {
   console.log(`🔍 Looking for video: series ID "${seriesId}", episode ${episodeNumber}`);
 
   try {
+    // FIXED: Validate episodeNumber before using in query
+    const episodeNum = parseInt(episodeNumber);
+    if (isNaN(episodeNum)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `Invalid episode number: "${episodeNumber}"` 
+      });
+    }
+
     // Find video for this series and episode
     const videoResult = await pool.query(
       'SELECT * FROM videos WHERE series_id = $1 AND episode_number = $2 AND status = $3',
-      [seriesId, parseInt(episodeNumber), 'completed']
+      [seriesId, episodeNum, 'completed']
     );
 
     if (videoResult.rows.length === 0) {
-      console.log(`❌ No video found for series ${seriesId} episode ${episodeNumber}`);
+      console.log(`❌ No video found for series ${seriesId} episode ${episodeNum}`);
       return res.status(404).json({ 
         success: false, 
         error: 'Video not found or not ready' 
