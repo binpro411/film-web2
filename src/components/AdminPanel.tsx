@@ -20,7 +20,12 @@ import {
   BarChart3,
   Video,
   FileText,
-  Image
+  Image,
+  AlertTriangle,
+  CheckCircle,
+  Loader2,
+  FolderOpen,
+  HardDrive
 } from 'lucide-react';
 import { Movie, Series, Episode } from '../types';
 import { movies } from '../data/movies';
@@ -32,6 +37,24 @@ interface AdminPanelProps {
   onClose: () => void;
 }
 
+interface VideoData {
+  id: string;
+  title: string;
+  seriesId: string;
+  episodeNumber: number;
+  status: 'completed' | 'processing' | 'failed';
+  duration: number;
+  fileSize: number;
+  uploadedAt: string;
+  hlsUrl: string | null;
+  totalSegments: number;
+  processingProgress: number;
+  originalFilename: string;
+  safeFilename: string;
+  videoPath: string;
+  hlsManifestPath: string | null;
+}
+
 const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'movies' | 'series' | 'episodes' | 'videos' | 'analytics'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,40 +64,38 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [editType, setEditType] = useState<'movie' | 'series' | 'episode'>('movie');
+  const [isLoading, setIsLoading] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   // Mock data states
   const [moviesData, setMoviesData] = useState(movies);
   const [seriesData, setSeriesData] = useState(series);
-  const [videosData, setVideosData] = useState<any[]>([]);
+  const [videosData, setVideosData] = useState<VideoData[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string>('');
 
-  // Load videos data
-  useEffect(() => {
-    // Mock videos data
-    setVideosData([
-      {
-        id: 'video-1',
-        title: 'Phàm Nhân Tu Tiên - Tập 1',
-        seriesId: 'series-1',
-        episodeNumber: 1,
-        status: 'completed',
-        duration: 1440, // seconds
-        fileSize: 524288000, // bytes
-        uploadedAt: '2024-01-15T10:30:00Z',
-        hlsUrl: '/segments/video-1/playlist.m3u8'
-      },
-      {
-        id: 'video-2',
-        title: 'Phàm Nhân Tu Tiên - Tập 2',
-        seriesId: 'series-1',
-        episodeNumber: 2,
-        status: 'processing',
-        duration: 0,
-        fileSize: 0,
-        uploadedAt: '2024-01-16T14:20:00Z',
-        hlsUrl: null
+  // Load videos data from server
+  const loadVideosData = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('http://localhost:3001/api/videos/all');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setVideosData(data.videos);
+        }
       }
-    ]);
-  }, []);
+    } catch (error) {
+      console.error('Failed to load videos:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'videos') {
+      loadVideosData();
+    }
+  }, [isOpen, activeTab]);
 
   if (!isOpen) return null;
 
@@ -125,6 +146,62 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const handleDeleteVideo = async (videoId: string) => {
+    if (deleteConfirm !== videoId) {
+      setDeleteConfirm(videoId);
+      setTimeout(() => setDeleteConfirm(null), 3000); // Auto-cancel after 3 seconds
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await fetch(`http://localhost:3001/api/video/${videoId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // Remove from local state
+          setVideosData(prev => prev.filter(v => v.id !== videoId));
+          setDeleteConfirm(null);
+          
+          // Show success message
+          alert('Video đã được xóa thành công!');
+        } else {
+          alert(`Lỗi xóa video: ${data.error}`);
+        }
+      } else {
+        alert('Không thể xóa video. Vui lòng thử lại.');
+      }
+    } catch (error) {
+      console.error('Delete video error:', error);
+      alert('Có lỗi xảy ra khi xóa video.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const getVideoStatus = (video: VideoData) => {
+    switch (video.status) {
+      case 'completed':
+        return { text: 'Hoàn thành', color: 'bg-green-500/20 text-green-400', icon: CheckCircle };
+      case 'processing':
+        return { text: 'Đang xử lý', color: 'bg-yellow-500/20 text-yellow-400', icon: Loader2 };
+      case 'failed':
+        return { text: 'Lỗi', color: 'bg-red-500/20 text-red-400', icon: AlertTriangle };
+      default:
+        return { text: 'Không xác định', color: 'bg-gray-500/20 text-gray-400', icon: AlertTriangle };
+    }
+  };
+
+  const filteredVideos = videosData.filter(video => {
+    const matchesSearch = video.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         video.seriesId.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = !statusFilter || video.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
   const renderOverview = () => (
     <div className="space-y-6">
       {/* Stats Cards */}
@@ -152,20 +229,48 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-xl p-6 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-green-100 text-sm">Videos Uploaded</p>
+              <p className="text-green-100 text-sm">Videos Hoàn thành</p>
               <p className="text-3xl font-bold">{videosData.filter(v => v.status === 'completed').length}</p>
             </div>
-            <Upload className="h-12 w-12 text-green-200" />
+            <CheckCircle className="h-12 w-12 text-green-200" />
           </div>
         </div>
 
         <div className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl p-6 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-orange-100 text-sm">Processing</p>
+              <p className="text-orange-100 text-sm">Đang xử lý</p>
               <p className="text-3xl font-bold">{videosData.filter(v => v.status === 'processing').length}</p>
             </div>
-            <Clock className="h-12 w-12 text-orange-200" />
+            <Loader2 className="h-12 w-12 text-orange-200" />
+          </div>
+        </div>
+      </div>
+
+      {/* Storage Info */}
+      <div className="bg-gray-800 rounded-xl p-6">
+        <h3 className="text-white font-semibold text-lg mb-4 flex items-center space-x-2">
+          <HardDrive className="h-5 w-5" />
+          <span>Thông Tin Lưu Trữ</span>
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-gray-700 rounded-lg p-4">
+            <p className="text-gray-400 text-sm">Tổng dung lượng</p>
+            <p className="text-white text-xl font-bold">
+              {formatFileSize(videosData.reduce((total, video) => total + video.fileSize, 0))}
+            </p>
+          </div>
+          <div className="bg-gray-700 rounded-lg p-4">
+            <p className="text-gray-400 text-sm">Tổng segments</p>
+            <p className="text-white text-xl font-bold">
+              {videosData.reduce((total, video) => total + video.totalSegments, 0)}
+            </p>
+          </div>
+          <div className="bg-gray-700 rounded-lg p-4">
+            <p className="text-gray-400 text-sm">Thời lượng video</p>
+            <p className="text-white text-xl font-bold">
+              {formatDuration(videosData.reduce((total, video) => total + video.duration, 0))}
+            </p>
           </div>
         </div>
       </div>
@@ -177,30 +282,30 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
           <span>Hoạt Động Gần Đây</span>
         </h3>
         <div className="space-y-3">
-          {videosData.slice(0, 5).map((video) => (
-            <div key={video.id} className="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-              <div className="flex items-center space-x-3">
-                <div className={`w-3 h-3 rounded-full ${
-                  video.status === 'completed' ? 'bg-green-400' : 
-                  video.status === 'processing' ? 'bg-yellow-400' : 'bg-red-400'
-                }`} />
-                <div>
-                  <p className="text-white font-medium">{video.title}</p>
-                  <p className="text-gray-400 text-sm">
-                    {new Date(video.uploadedAt).toLocaleDateString('vi-VN')}
-                  </p>
+          {videosData.slice(0, 5).map((video) => {
+            const status = getVideoStatus(video);
+            const StatusIcon = status.icon;
+            
+            return (
+              <div key={video.id} className="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <StatusIcon className={`w-5 h-5 ${video.status === 'processing' ? 'animate-spin' : ''} ${
+                    video.status === 'completed' ? 'text-green-400' : 
+                    video.status === 'processing' ? 'text-yellow-400' : 'text-red-400'
+                  }`} />
+                  <div>
+                    <p className="text-white font-medium">{video.title}</p>
+                    <p className="text-gray-400 text-sm">
+                      {new Date(video.uploadedAt).toLocaleDateString('vi-VN')}
+                    </p>
+                  </div>
                 </div>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${status.color}`}>
+                  {status.text}
+                </span>
               </div>
-              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                video.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                video.status === 'processing' ? 'bg-yellow-500/20 text-yellow-400' :
-                'bg-red-500/20 text-red-400'
-              }`}>
-                {video.status === 'completed' ? 'Hoàn thành' :
-                 video.status === 'processing' ? 'Đang xử lý' : 'Lỗi'}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -432,12 +537,34 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-white">Quản Lý Videos</h2>
         <div className="flex space-x-2">
-          <select className="bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 text-sm">
+          <div className="relative">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tìm kiếm video..."
+              className="bg-gray-800 text-white border border-gray-600 rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <select 
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 text-sm"
+          >
             <option value="">Tất cả trạng thái</option>
             <option value="completed">Hoàn thành</option>
             <option value="processing">Đang xử lý</option>
             <option value="failed">Lỗi</option>
           </select>
+          <button
+            onClick={loadVideosData}
+            disabled={isLoading}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white px-4 py-2 rounded-lg text-sm transition-colors flex items-center space-x-2"
+          >
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+            <span>Tải lại</span>
+          </button>
         </div>
       </div>
 
@@ -453,79 +580,153 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                 <th className="text-left text-white font-medium p-4">Trạng thái</th>
                 <th className="text-left text-white font-medium p-4">Thời lượng</th>
                 <th className="text-left text-white font-medium p-4">Kích thước</th>
+                <th className="text-left text-white font-medium p-4">Segments</th>
                 <th className="text-left text-white font-medium p-4">Upload</th>
                 <th className="text-left text-white font-medium p-4">Thao tác</th>
               </tr>
             </thead>
             <tbody>
-              {videosData.map((video) => {
-                const seriesInfo = seriesData.find(s => s.id === video.seriesId);
-                
-                return (
-                  <tr key={video.id} className="border-t border-gray-700">
-                    <td className="p-4">
-                      <div>
-                        <p className="text-white font-medium">{video.title}</p>
-                        <p className="text-gray-400 text-sm">ID: {video.id}</p>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <p className="text-gray-300">{seriesInfo?.title || 'N/A'}</p>
-                    </td>
-                    <td className="p-4">
-                      <span className="bg-blue-600 text-white px-2 py-1 rounded text-sm">
-                        Tập {video.episodeNumber}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        video.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                        video.status === 'processing' ? 'bg-yellow-500/20 text-yellow-400' :
-                        'bg-red-500/20 text-red-400'
-                      }`}>
-                        {video.status === 'completed' ? 'Hoàn thành' :
-                         video.status === 'processing' ? 'Đang xử lý' : 'Lỗi'}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <p className="text-gray-300">
-                        {video.duration > 0 ? formatDuration(video.duration) : 'N/A'}
-                      </p>
-                    </td>
-                    <td className="p-4">
-                      <p className="text-gray-300">
-                        {video.fileSize > 0 ? formatFileSize(video.fileSize) : 'N/A'}
-                      </p>
-                    </td>
-                    <td className="p-4">
-                      <p className="text-gray-400 text-sm">
-                        {new Date(video.uploadedAt).toLocaleDateString('vi-VN')}
-                      </p>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex space-x-2">
-                        {video.status === 'completed' && video.hlsUrl && (
-                          <button
-                            className="bg-green-600 hover:bg-green-700 text-white p-2 rounded transition-colors"
-                            title="Xem video"
-                          >
-                            <Play className="h-4 w-4" />
-                          </button>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={9} className="p-8 text-center">
+                    <div className="flex items-center justify-center space-x-2">
+                      <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
+                      <span className="text-gray-400">Đang tải dữ liệu...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredVideos.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="p-8 text-center">
+                    <div className="text-gray-400">
+                      {videosData.length === 0 ? 'Chưa có video nào được tải lên' : 'Không tìm thấy video phù hợp'}
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredVideos.map((video) => {
+                  const seriesInfo = seriesData.find(s => s.id === video.seriesId);
+                  const status = getVideoStatus(video);
+                  const StatusIcon = status.icon;
+                  
+                  return (
+                    <tr key={video.id} className="border-t border-gray-700 hover:bg-gray-700/50">
+                      <td className="p-4">
+                        <div>
+                          <p className="text-white font-medium">{video.title}</p>
+                          <p className="text-gray-400 text-sm">ID: {video.id}</p>
+                          <p className="text-gray-500 text-xs">{video.originalFilename}</p>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <p className="text-gray-300">{seriesInfo?.title || 'N/A'}</p>
+                        <p className="text-gray-500 text-sm">{seriesInfo?.titleVietnamese || ''}</p>
+                      </td>
+                      <td className="p-4">
+                        <span className="bg-blue-600 text-white px-2 py-1 rounded text-sm">
+                          Tập {video.episodeNumber}
+                        </span>
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center space-x-2">
+                          <StatusIcon className={`w-4 h-4 ${video.status === 'processing' ? 'animate-spin' : ''}`} />
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${status.color}`}>
+                            {status.text}
+                          </span>
+                        </div>
+                        {video.status === 'processing' && video.processingProgress > 0 && (
+                          <div className="mt-1">
+                            <div className="w-full bg-gray-600 rounded-full h-1">
+                              <div 
+                                className="bg-yellow-400 h-1 rounded-full transition-all"
+                                style={{ width: `${video.processingProgress}%` }}
+                              />
+                            </div>
+                            <p className="text-xs text-gray-400 mt-1">{video.processingProgress}%</p>
+                          </div>
                         )}
-                        <button
-                          className="bg-red-600 hover:bg-red-700 text-white p-2 rounded transition-colors"
-                          title="Xóa video"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td className="p-4">
+                        <p className="text-gray-300">
+                          {video.duration > 0 ? formatDuration(video.duration) : 'N/A'}
+                        </p>
+                      </td>
+                      <td className="p-4">
+                        <p className="text-gray-300">
+                          {video.fileSize > 0 ? formatFileSize(video.fileSize) : 'N/A'}
+                        </p>
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center space-x-2">
+                          <FolderOpen className="h-4 w-4 text-blue-400" />
+                          <span className="text-gray-300">{video.totalSegments}</span>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <p className="text-gray-400 text-sm">
+                          {new Date(video.uploadedAt).toLocaleDateString('vi-VN')}
+                        </p>
+                        <p className="text-gray-500 text-xs">
+                          {new Date(video.uploadedAt).toLocaleTimeString('vi-VN')}
+                        </p>
+                      </td>
+                      <td className="p-4">
+                        <div className="flex space-x-2">
+                          {video.status === 'completed' && video.hlsUrl && (
+                            <button
+                              className="bg-green-600 hover:bg-green-700 text-white p-2 rounded transition-colors"
+                              title="Xem video"
+                              onClick={() => window.open(`http://localhost:3001${video.hlsUrl}`, '_blank')}
+                            >
+                              <Play className="h-4 w-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteVideo(video.id)}
+                            className={`text-white p-2 rounded transition-colors ${
+                              deleteConfirm === video.id 
+                                ? 'bg-red-700 hover:bg-red-800' 
+                                : 'bg-red-600 hover:bg-red-700'
+                            }`}
+                            title={deleteConfirm === video.id ? 'Click lại để xác nhận xóa' : 'Xóa video'}
+                          >
+                            {deleteConfirm === video.id ? (
+                              <AlertTriangle className="h-4 w-4" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                        {deleteConfirm === video.id && (
+                          <p className="text-red-400 text-xs mt-1">Click lại để xác nhận</p>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Storage Path Info */}
+      <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+        <h4 className="text-blue-400 font-medium mb-2 flex items-center space-x-2">
+          <FolderOpen className="h-4 w-4" />
+          <span>Cấu trúc thư mục lưu trữ:</span>
+        </h4>
+        <div className="text-blue-300 text-sm space-y-1 font-mono">
+          <div>📁 /server/videos/</div>
+          <div className="ml-4">📁 /{'{series-name}'}/</div>
+          <div className="ml-8">📁 /tap-{'{episode-number}'}/</div>
+          <div className="ml-12">🎬 video.mp4</div>
+          <div className="ml-12">📄 playlist.m3u8</div>
+          <div className="ml-12">📦 segment_001.ts, segment_002.ts, ...</div>
+        </div>
+        <p className="text-blue-200 text-xs mt-2">
+          Khi xóa video, toàn bộ thư mục tập phim sẽ được xóa khỏi hệ thống file
+        </p>
       </div>
     </div>
   );
@@ -597,7 +798,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                   }`}
                 >
                   <Database className="h-5 w-5" />
-                  <span>Videos</span>
+                  <span>Videos ({videosData.length})</span>
                 </button>
 
                 <button
@@ -644,8 +845,26 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
             setSelectedEpisode(null);
           }}
           onVideoUploaded={(videoData) => {
-            // Update videos data
-            setVideosData(prev => [...prev, videoData]);
+            // Add to videos data
+            const newVideo: VideoData = {
+              id: videoData.id,
+              title: videoData.title,
+              seriesId: selectedSeries.id,
+              episodeNumber: selectedEpisode.number,
+              status: 'completed',
+              duration: videoData.duration || 0,
+              fileSize: videoData.fileSize || 0,
+              uploadedAt: videoData.uploadedAt || new Date().toISOString(),
+              hlsUrl: videoData.hlsUrl,
+              totalSegments: videoData.totalSegments || 0,
+              processingProgress: 100,
+              originalFilename: videoData.originalFilename || '',
+              safeFilename: videoData.safeFilename || '',
+              videoPath: videoData.videoPath || '',
+              hlsManifestPath: videoData.hlsManifestPath || null
+            };
+            
+            setVideosData(prev => [...prev, newVideo]);
             setIsUploadModalOpen(false);
             setSelectedSeries(null);
             setSelectedEpisode(null);
