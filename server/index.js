@@ -727,7 +727,7 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
   }
 });
 
-// FFmpeg HLS processing with ID-based folder structure
+// FFmpeg HLS processing with ID-based folder structure - FIXED: Better manifest generation
 async function processVideoWithFFmpeg(videoId, videoPath, segmentsPath, duration, seriesId, episodeNumber) {
   const client = await pool.connect();
   
@@ -751,7 +751,7 @@ async function processVideoWithFFmpeg(videoId, videoPath, segmentsPath, duration
     console.log(`📁 Segment pattern: ${segmentPattern}`);
     
     await new Promise((resolve, reject) => {
-      // OPTIMIZED FFmpeg command for browser compatibility
+      // ENHANCED FFmpeg command for better HLS compatibility
       const command = ffmpeg(videoPath)
         // Video settings - browser compatible
         .videoCodec('libx264')           // H.264 codec (widely supported)
@@ -767,18 +767,22 @@ async function processVideoWithFFmpeg(videoId, videoPath, segmentsPath, duration
         .addOption('-ac', '2')           // Stereo audio
         .addOption('-b:a', '128k')       // Audio bitrate
         
-        // HLS settings
+        // HLS settings - ENHANCED for better compatibility
         .addOption('-f', 'hls')          // HLS format
         .addOption('-hls_time', '6')     // 6-second segments
         .addOption('-hls_list_size', '0') // Keep all segments
         .addOption('-hls_segment_type', 'mpegts') // MPEG-TS segments
         .addOption('-hls_segment_filename', segmentPattern)
         .addOption('-hls_flags', 'independent_segments+program_date_time')
+        .addOption('-hls_playlist_type', 'vod') // Video on demand playlist
+        .addOption('-hls_allow_cache', '1')     // Allow caching
+        .addOption('-hls_base_url', '')         // Relative URLs
         
         // Keyframe settings for better seeking
         .addOption('-g', '48')           // GOP size (keyframe every 48 frames = 2 seconds at 24fps)
         .addOption('-keyint_min', '48')  // Min keyframe interval
         .addOption('-sc_threshold', '0') // Disable scene change detection
+        .addOption('-force_key_frames', 'expr:gte(t,n_forced*2)') // Force keyframes every 2 seconds
         
         // Output
         .output(hlsManifestPath)
@@ -816,6 +820,38 @@ async function processVideoWithFFmpeg(videoId, videoPath, segmentsPath, duration
       command.run();
     });
 
+    // CRITICAL: Verify and fix manifest file
+    console.log('🔍 Verifying HLS manifest file...');
+    const manifestExists = await fs.pathExists(hlsManifestPath);
+    if (!manifestExists) {
+      throw new Error('HLS manifest file was not created');
+    }
+
+    // Read and validate manifest content
+    let manifestContent = await fs.readFile(hlsManifestPath, 'utf8');
+    console.log('📋 Original manifest content:');
+    console.log(manifestContent.substring(0, 200) + '...');
+
+    // FIXED: Ensure manifest starts with #EXTM3U
+    if (!manifestContent.startsWith('#EXTM3U')) {
+      console.log('🔧 Fixing manifest - adding #EXTM3U header');
+      manifestContent = '#EXTM3U\n' + manifestContent;
+      await fs.writeFile(hlsManifestPath, manifestContent, 'utf8');
+    }
+
+    // Validate manifest has required tags
+    if (!manifestContent.includes('#EXT-X-VERSION')) {
+      console.log('🔧 Adding missing HLS version tag');
+      manifestContent = manifestContent.replace('#EXTM3U', '#EXTM3U\n#EXT-X-VERSION:3');
+      await fs.writeFile(hlsManifestPath, manifestContent, 'utf8');
+    }
+
+    if (!manifestContent.includes('#EXT-X-TARGETDURATION')) {
+      console.log('🔧 Adding missing target duration tag');
+      manifestContent = manifestContent.replace('#EXT-X-VERSION:3', '#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6');
+      await fs.writeFile(hlsManifestPath, manifestContent, 'utf8');
+    }
+
     // Read generated segments and save to database
     console.log('📊 Reading generated HLS segments...');
     const segmentFiles = await fs.readdir(segmentsPath);
@@ -823,16 +859,10 @@ async function processVideoWithFFmpeg(videoId, videoPath, segmentsPath, duration
 
     console.log(`📁 Found ${tsFiles.length} HLS segment files`);
 
-    // Verify manifest file exists and is valid
-    const manifestExists = await fs.pathExists(hlsManifestPath);
-    if (!manifestExists) {
-      throw new Error('HLS manifest file was not created');
-    }
-
-    // Read and validate manifest
-    const manifestContent = await fs.readFile(hlsManifestPath, 'utf8');
-    console.log('📋 HLS Manifest preview:');
-    console.log(manifestContent.split('\n').slice(0, 10).join('\n'));
+    // Final manifest validation
+    const finalManifest = await fs.readFile(hlsManifestPath, 'utf8');
+    console.log('📋 Final HLS Manifest preview:');
+    console.log(finalManifest.split('\n').slice(0, 15).join('\n'));
 
     // Clear existing segments for this video
     await client.query('DELETE FROM segments WHERE video_id = $1', [videoId]);
