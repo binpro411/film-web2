@@ -1068,6 +1068,7 @@ app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      console.log(`❌ No video found for series ${seriesId} episode ${episodeNumber}`);
       return res.status(404).json({ 
         success: false, 
         error: 'Video not found or not ready' 
@@ -1081,13 +1082,15 @@ app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
     const lastFound = requestTracker.get(videoKey) || 0;
     
     if (now - lastFound > 10000) { // Only log every 10 seconds
-      console.log(`✅ Found video: ${video.title}`);
+      console.log(`✅ Found video: ${video.title} (ID: ${video.id})`);
       requestTracker.set(videoKey, now);
     }
 
     // FIXED: Create consistent HLS URL using seriesId-tap-XXX format
     const episodeFolderName = `tap-${video.episode_number.toString().padStart(3, '0')}`;
     const hlsUrl = `/segments/${video.series_id}-${episodeFolderName}/playlist.m3u8`;
+
+    console.log(`🎬 Generated HLS URL: ${hlsUrl}`);
 
     res.json({
       success: true,

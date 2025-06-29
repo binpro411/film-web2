@@ -184,7 +184,7 @@ const EpisodePlayerPage: React.FC = () => {
     }
   };
 
-  // Load video data for current episode
+  // Load video data for current episode - FIXED TO MATCH SERVER ENDPOINT
   const loadVideoData = useCallback(async (seriesId: string, epNumber: number) => {
     const videoKey = `${seriesId}-${epNumber}`;
     
@@ -197,10 +197,13 @@ const EpisodePlayerPage: React.FC = () => {
     setLoadError(null);
     
     try {
-      console.log(`🔍 Loading video for ${seriesId} episode ${epNumber}`);
+      console.log(`🔍 Loading video for series ${seriesId} episode ${epNumber}`);
       
+      // FIXED: Use the correct API endpoint that matches server
       const response = await fetch(`http://localhost:3001/api/videos/${seriesId}/${epNumber}`);
       const data = await response.json();
+      
+      console.log('📹 Video API Response:', data);
       
       if (data.success) {
         console.log('✅ Video data loaded:', data.video);
@@ -214,6 +217,7 @@ const EpisodePlayerPage: React.FC = () => {
           totalSegments: data.video.totalSegments
         };
         
+        console.log('🎬 Final video data:', newVideoData);
         setVideoData(newVideoData);
         loadedVideoRef.current = videoKey;
         
@@ -510,6 +514,7 @@ const EpisodePlayerPage: React.FC = () => {
             <div className="text-center">
               <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
               <p className="text-white text-xl">Đang kiểm tra video...</p>
+              <p className="text-gray-300 text-sm mt-2">Tìm kiếm video cho tập {episodeNumber}...</p>
             </div>
           </div>
         ) : loadError ? (
