@@ -7,10 +7,8 @@ import {
   Play, 
   Eye, 
   Search, 
-  Filter,
   Save,
   X,
-  Film,
   Calendar,
   Clock,
   Star,
@@ -19,17 +17,15 @@ import {
   Settings,
   BarChart3,
   Video,
-  FileText,
-  Image,
   AlertTriangle,
   CheckCircle,
   Loader2,
   FolderOpen,
-  HardDrive
+  HardDrive,
+  Film,
+  Globe,
+  Tag
 } from 'lucide-react';
-import { Movie, Series, Episode } from '../types';
-import { movies } from '../data/movies';
-import { series } from '../data/series';
 import VideoUploadModal from './VideoUploadModal';
 
 interface AdminPanelProps {
@@ -37,43 +33,119 @@ interface AdminPanelProps {
   onClose: () => void;
 }
 
+interface SeriesData {
+  id: string;
+  title: string;
+  titleVietnamese: string;
+  description: string;
+  year: number;
+  rating: number;
+  genre: string[];
+  director: string;
+  studio: string;
+  thumbnail: string;
+  banner: string;
+  trailer: string;
+  featured: boolean;
+  new: boolean;
+  popular: boolean;
+  episodeCount: number;
+  totalDuration: string;
+  status: 'ongoing' | 'completed' | 'upcoming';
+  airDay: string;
+  airTime: string;
+  videosCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface EpisodeData {
+  id: string;
+  seriesId: string;
+  number: number;
+  title: string;
+  titleVietnamese: string;
+  description: string;
+  duration: string;
+  thumbnail: string;
+  releaseDate: string;
+  rating: number;
+  hasVideo: boolean;
+  videoStatus: string;
+  hlsUrl: string | null;
+}
+
 interface VideoData {
   id: string;
   title: string;
-  seriesId: string;
-  episodeNumber: number;
+  series_id: string;
+  episode_number: number;
   status: 'completed' | 'processing' | 'failed';
   duration: number;
-  fileSize: number;
+  file_size: number;
   uploadedAt: string;
   hlsUrl: string | null;
-  totalSegments: number;
-  processingProgress: number;
-  originalFilename: string;
-  safeFilename: string;
-  videoPath: string;
-  hlsManifestPath: string | null;
+  total_segments: number;
+  processing_progress: number;
+  original_filename: string;
+  safe_filename: string;
+  video_path: string;
+  hls_manifest_path: string | null;
+  seriesTitle: string;
+  seriesTitleVietnamese: string;
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'movies' | 'series' | 'episodes' | 'videos' | 'analytics'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'series' | 'videos'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
-  const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedSeries, setSelectedSeries] = useState<SeriesData | null>(null);
+  const [selectedEpisode, setSelectedEpisode] = useState<EpisodeData | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<any>(null);
-  const [editType, setEditType] = useState<'movie' | 'series' | 'episode'>('movie');
   const [isLoading, setIsLoading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [isEditSeriesModalOpen, setIsEditSeriesModalOpen] = useState(false);
+  const [editingSeries, setEditingSeries] = useState<SeriesData | null>(null);
 
-  // Mock data states
-  const [moviesData, setMoviesData] = useState(movies);
-  const [seriesData, setSeriesData] = useState(series);
+  // Data states
+  const [seriesData, setSeriesData] = useState<SeriesData[]>([]);
+  const [episodesData, setEpisodesData] = useState<EpisodeData[]>([]);
   const [videosData, setVideosData] = useState<VideoData[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('');
 
-  // Load videos data from server
+  // Load series data
+  const loadSeriesData = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('http://localhost:3001/api/series');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setSeriesData(data.series);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load series:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Load episodes for selected series
+  const loadEpisodesData = async (seriesId: string) => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/series/${seriesId}/episodes`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setEpisodesData(data.episodes);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load episodes:', error);
+    }
+  };
+
+  // Load videos data
   const loadVideosData = async () => {
     setIsLoading(true);
     try {
@@ -92,10 +164,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   };
 
   useEffect(() => {
-    if (isOpen && activeTab === 'videos') {
-      loadVideosData();
+    if (isOpen) {
+      if (activeTab === 'series' || activeTab === 'overview') {
+        loadSeriesData();
+      }
+      if (activeTab === 'videos' || activeTab === 'overview') {
+        loadVideosData();
+      }
     }
   }, [isOpen, activeTab]);
+
+  useEffect(() => {
+    if (selectedSeries) {
+      loadEpisodesData(selectedSeries.id);
+    }
+  }, [selectedSeries]);
 
   if (!isOpen) return null;
 
@@ -117,28 +200,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleEdit = (item: any, type: 'movie' | 'series' | 'episode') => {
-    setEditingItem(item);
-    setEditType(type);
-    setIsEditModalOpen(true);
-  };
-
-  const handleDelete = (id: string, type: 'movie' | 'series' | 'episode') => {
-    if (confirm('Bạn có chắc chắn muốn xóa?')) {
-      if (type === 'movie') {
-        setMoviesData(prev => prev.filter(item => item.id !== id));
-      } else if (type === 'series') {
-        setSeriesData(prev => prev.filter(item => item.id !== id));
-      }
-      // Handle episode deletion within series
-    }
-  };
-
   const handleVideoUpload = (seriesId: string, episodeNumber: number) => {
     const targetSeries = seriesData.find(s => s.id === seriesId);
     if (targetSeries) {
       setSelectedSeries(targetSeries);
-      const targetEpisode = targetSeries.episodes.find(ep => ep.number === episodeNumber);
+      const targetEpisode = episodesData.find(ep => ep.number === episodeNumber);
       if (targetEpisode) {
         setSelectedEpisode(targetEpisode);
         setIsUploadModalOpen(true);
@@ -149,7 +215,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   const handleDeleteVideo = async (videoId: string) => {
     if (deleteConfirm !== videoId) {
       setDeleteConfirm(videoId);
-      setTimeout(() => setDeleteConfirm(null), 3000); // Auto-cancel after 3 seconds
+      setTimeout(() => setDeleteConfirm(null), 3000);
       return;
     }
 
@@ -162,11 +228,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          // Remove from local state
           setVideosData(prev => prev.filter(v => v.id !== videoId));
           setDeleteConfirm(null);
-          
-          // Show success message
           alert('Video đã được xóa thành công!');
         } else {
           alert(`Lỗi xóa video: ${data.error}`);
@@ -197,7 +260,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
 
   const filteredVideos = videosData.filter(video => {
     const matchesSearch = video.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         video.seriesId.toLowerCase().includes(searchQuery.toLowerCase());
+                         video.series_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         video.seriesTitle?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = !statusFilter || video.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -209,8 +273,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl p-6 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-blue-100 text-sm">Tổng Phim</p>
-              <p className="text-3xl font-bold">{moviesData.length}</p>
+              <p className="text-blue-100 text-sm">Tổng Series</p>
+              <p className="text-3xl font-bold">{seriesData.length}</p>
             </div>
             <Film className="h-12 w-12 text-blue-200" />
           </div>
@@ -219,8 +283,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         <div className="bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl p-6 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-purple-100 text-sm">Tổng Series</p>
-              <p className="text-3xl font-bold">{seriesData.length}</p>
+              <p className="text-purple-100 text-sm">Tổng Episodes</p>
+              <p className="text-3xl font-bold">{seriesData.reduce((total, series) => total + series.episodeCount, 0)}</p>
             </div>
             <Video className="h-12 w-12 text-purple-200" />
           </div>
@@ -257,13 +321,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
           <div className="bg-gray-700 rounded-lg p-4">
             <p className="text-gray-400 text-sm">Tổng dung lượng</p>
             <p className="text-white text-xl font-bold">
-              {formatFileSize(videosData.reduce((total, video) => total + video.fileSize, 0))}
+              {formatFileSize(videosData.reduce((total, video) => total + video.file_size, 0))}
             </p>
           </div>
           <div className="bg-gray-700 rounded-lg p-4">
             <p className="text-gray-400 text-sm">Tổng segments</p>
             <p className="text-white text-xl font-bold">
-              {videosData.reduce((total, video) => total + video.totalSegments, 0)}
+              {videosData.reduce((total, video) => total + video.total_segments, 0)}
             </p>
           </div>
           <div className="bg-gray-700 rounded-lg p-4">
@@ -311,17 +375,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     </div>
   );
 
-  const renderMovies = () => (
+  const renderSeries = () => (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white">Quản Lý Phim</h2>
+        <h2 className="text-2xl font-bold text-white">Quản Lý Series</h2>
         <button
-          onClick={() => handleEdit(null, 'movie')}
+          onClick={() => {
+            setEditingSeries(null);
+            setIsEditSeriesModalOpen(true);
+          }}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
         >
           <Plus className="h-4 w-4" />
-          <span>Thêm Phim Mới</span>
+          <span>Thêm Series Mới</span>
         </button>
       </div>
 
@@ -332,201 +399,133 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Tìm kiếm phim..."
+          placeholder="Tìm kiếm series..."
           className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg pl-10 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
 
-      {/* Movies Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {moviesData
-          .filter(movie => 
-            movie.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            movie.titleVietnamese.includes(searchQuery)
-          )
-          .map((movie) => (
-            <div key={movie.id} className="bg-gray-800 rounded-xl overflow-hidden">
-              <div className="relative aspect-[2/3]">
-                <img
-                  src={movie.thumbnail}
-                  alt={movie.title}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute top-2 right-2 flex space-x-1">
-                  <button
-                    onClick={() => handleEdit(movie, 'movie')}
-                    className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg transition-colors"
-                  >
-                    <Edit className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(movie.id, 'movie')}
-                    className="bg-red-600 hover:bg-red-700 text-white p-2 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-              <div className="p-4">
-                <h3 className="text-white font-semibold mb-1">{movie.title}</h3>
-                <p className="text-blue-300 text-sm mb-2">{movie.titleVietnamese}</p>
-                <div className="flex items-center justify-between text-sm text-gray-400">
-                  <span>{movie.year}</span>
-                  <div className="flex items-center space-x-1">
-                    <Star className="h-3 w-3 text-yellow-400 fill-current" />
-                    <span>{movie.rating}</span>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {movie.genre.slice(0, 2).map((genre, index) => (
-                    <span
-                      key={index}
-                      className="bg-gray-700 text-gray-300 px-2 py-1 rounded text-xs"
-                    >
-                      {genre}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-      </div>
-    </div>
-  );
-
-  const renderSeries = () => (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white">Quản Lý Series</h2>
-        <button
-          onClick={() => handleEdit(null, 'series')}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Thêm Series Mới</span>
-        </button>
-      </div>
-
       {/* Series List */}
       <div className="space-y-4">
-        {seriesData.map((seriesItem) => (
-          <div key={seriesItem.id} className="bg-gray-800 rounded-xl p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex space-x-4">
-                <img
-                  src={seriesItem.thumbnail}
-                  alt={seriesItem.title}
-                  className="w-24 h-36 object-cover rounded-lg"
-                />
-                <div>
-                  <h3 className="text-white font-semibold text-xl mb-1">{seriesItem.title}</h3>
-                  <p className="text-blue-300 mb-2">{seriesItem.titleVietnamese}</p>
-                  <div className="flex items-center space-x-4 text-sm text-gray-400 mb-2">
-                    <span>{seriesItem.year}</span>
-                    <span>{seriesItem.episodeCount} tập</span>
-                    <div className="flex items-center space-x-1">
-                      <Star className="h-3 w-3 text-yellow-400 fill-current" />
-                      <span>{seriesItem.rating}</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {seriesItem.genre.slice(0, 3).map((genre, index) => (
-                      <span
-                        key={index}
-                        className="bg-gray-700 text-gray-300 px-2 py-1 rounded text-xs"
-                      >
-                        {genre}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => setSelectedSeries(seriesItem)}
-                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm transition-colors flex items-center space-x-1"
-                >
-                  <Eye className="h-4 w-4" />
-                  <span>Xem Tập</span>
-                </button>
-                <button
-                  onClick={() => handleEdit(seriesItem, 'series')}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm transition-colors"
-                >
-                  <Edit className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={() => handleDelete(seriesItem.id, 'series')}
-                  className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm transition-colors"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Episodes Preview */}
-            {selectedSeries?.id === seriesItem.id && (
-              <div className="border-t border-gray-700 pt-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-white font-medium">Danh Sách Tập ({seriesItem.episodes.length})</h4>
-                  <button
-                    onClick={() => handleEdit(null, 'episode')}
-                    className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm transition-colors flex items-center space-x-1"
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>Thêm Tập</span>
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {seriesItem.episodes.map((episode) => {
-                    const hasVideo = videosData.some(v => 
-                      v.seriesId === seriesItem.id && 
-                      v.episodeNumber === episode.number && 
-                      v.status === 'completed'
-                    );
-                    
-                    return (
-                      <div key={episode.id} className="bg-gray-700 rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="text-white font-medium">Tập {episode.number}</h5>
-                          <div className="flex space-x-1">
-                            {!hasVideo && (
-                              <button
-                                onClick={() => handleVideoUpload(seriesItem.id, episode.number)}
-                                className="bg-green-600 hover:bg-green-700 text-white p-1 rounded transition-colors"
-                                title="Upload Video"
-                              >
-                                <Upload className="h-3 w-3" />
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleEdit(episode, 'episode')}
-                              className="bg-blue-600 hover:bg-blue-700 text-white p-1 rounded transition-colors"
-                            >
-                              <Edit className="h-3 w-3" />
-                            </button>
-                          </div>
-                        </div>
-                        <p className="text-gray-300 text-sm mb-1">{episode.title}</p>
-                        <p className="text-blue-300 text-xs mb-2">{episode.titleVietnamese}</p>
-                        <div className="flex items-center justify-between text-xs text-gray-400">
-                          <span>{episode.duration}</span>
-                          <div className="flex items-center space-x-2">
-                            <div className={`w-2 h-2 rounded-full ${
-                              hasVideo ? 'bg-green-400' : 'bg-red-400'
-                            }`} />
-                            <span>{hasVideo ? 'Có video' : 'Chưa có video'}</span>
-                          </div>
+        {isLoading ? (
+          <div className="text-center py-8">
+            <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-4" />
+            <p className="text-gray-400">Đang tải dữ liệu...</p>
+          </div>
+        ) : (
+          seriesData
+            .filter(series => 
+              series.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              series.titleVietnamese.includes(searchQuery)
+            )
+            .map((seriesItem) => (
+              <div key={seriesItem.id} className="bg-gray-800 rounded-xl p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex space-x-4">
+                    <img
+                      src={seriesItem.thumbnail || 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg?auto=compress&cs=tinysrgb&w=400'}
+                      alt={seriesItem.title}
+                      className="w-24 h-36 object-cover rounded-lg"
+                    />
+                    <div>
+                      <h3 className="text-white font-semibold text-xl mb-1">{seriesItem.title}</h3>
+                      <p className="text-blue-300 mb-2">{seriesItem.titleVietnamese}</p>
+                      <div className="flex items-center space-x-4 text-sm text-gray-400 mb-2">
+                        <span>{seriesItem.year}</span>
+                        <span>{seriesItem.episodeCount} tập</span>
+                        <span>{seriesItem.videosCount} videos</span>
+                        <div className="flex items-center space-x-1">
+                          <Star className="h-3 w-3 text-yellow-400 fill-current" />
+                          <span>{seriesItem.rating}</span>
                         </div>
                       </div>
-                    );
-                  })}
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {seriesItem.genre.slice(0, 3).map((genre, index) => (
+                          <span
+                            key={index}
+                            className="bg-gray-700 text-gray-300 px-2 py-1 rounded text-xs"
+                          >
+                            {genre}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-gray-400 text-sm line-clamp-2">{seriesItem.description}</p>
+                    </div>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => setSelectedSeries(selectedSeries?.id === seriesItem.id ? null : seriesItem)}
+                      className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm transition-colors flex items-center space-x-1"
+                    >
+                      <Eye className="h-4 w-4" />
+                      <span>{selectedSeries?.id === seriesItem.id ? 'Ẩn' : 'Xem'} Tập</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingSeries(seriesItem);
+                        setIsEditSeriesModalOpen(true);
+                      }}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm transition-colors"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
+
+                {/* Episodes Preview */}
+                {selectedSeries?.id === seriesItem.id && (
+                  <div className="border-t border-gray-700 pt-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-white font-medium">Danh Sách Tập ({episodesData.length})</h4>
+                      <button
+                        onClick={() => {/* Add episode logic */}}
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm transition-colors flex items-center space-x-1"
+                      >
+                        <Plus className="h-4 w-4" />
+                        <span>Thêm Tập</span>
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {episodesData.map((episode) => (
+                        <div key={episode.id} className="bg-gray-700 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h5 className="text-white font-medium">Tập {episode.number}</h5>
+                            <div className="flex space-x-1">
+                              {!episode.hasVideo && (
+                                <button
+                                  onClick={() => handleVideoUpload(seriesItem.id, episode.number)}
+                                  className="bg-green-600 hover:bg-green-700 text-white p-1 rounded transition-colors"
+                                  title="Upload Video"
+                                >
+                                  <Upload className="h-3 w-3" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {/* Edit episode logic */}}
+                                className="bg-blue-600 hover:bg-blue-700 text-white p-1 rounded transition-colors"
+                              >
+                                <Edit className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-gray-300 text-sm mb-1">{episode.title}</p>
+                          <p className="text-blue-300 text-xs mb-2">{episode.titleVietnamese}</p>
+                          <div className="flex items-center justify-between text-xs text-gray-400">
+                            <span>{episode.duration}</span>
+                            <div className="flex items-center space-x-2">
+                              <div className={`w-2 h-2 rounded-full ${
+                                episode.hasVideo ? 'bg-green-400' : 'bg-red-400'
+                              }`} />
+                              <span>{episode.hasVideo ? 'Có video' : 'Chưa có video'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        ))}
+            ))
+        )}
       </div>
     </div>
   );
@@ -605,7 +604,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                 </tr>
               ) : (
                 filteredVideos.map((video) => {
-                  const seriesInfo = seriesData.find(s => s.id === video.seriesId);
                   const status = getVideoStatus(video);
                   const StatusIcon = status.icon;
                   
@@ -615,16 +613,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                         <div>
                           <p className="text-white font-medium">{video.title}</p>
                           <p className="text-gray-400 text-sm">ID: {video.id}</p>
-                          <p className="text-gray-500 text-xs">{video.originalFilename}</p>
+                          <p className="text-gray-500 text-xs">{video.original_filename}</p>
                         </div>
                       </td>
                       <td className="p-4">
-                        <p className="text-gray-300">{seriesInfo?.title || 'N/A'}</p>
-                        <p className="text-gray-500 text-sm">{seriesInfo?.titleVietnamese || ''}</p>
+                        <p className="text-gray-300">{video.seriesTitle || 'N/A'}</p>
+                        <p className="text-gray-500 text-sm">{video.seriesTitleVietnamese || ''}</p>
                       </td>
                       <td className="p-4">
                         <span className="bg-blue-600 text-white px-2 py-1 rounded text-sm">
-                          Tập {video.episodeNumber}
+                          Tập {video.episode_number}
                         </span>
                       </td>
                       <td className="p-4">
@@ -634,15 +632,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                             {status.text}
                           </span>
                         </div>
-                        {video.status === 'processing' && video.processingProgress > 0 && (
+                        {video.status === 'processing' && video.processing_progress > 0 && (
                           <div className="mt-1">
                             <div className="w-full bg-gray-600 rounded-full h-1">
                               <div 
                                 className="bg-yellow-400 h-1 rounded-full transition-all"
-                                style={{ width: `${video.processingProgress}%` }}
+                                style={{ width: `${video.processing_progress}%` }}
                               />
                             </div>
-                            <p className="text-xs text-gray-400 mt-1">{video.processingProgress}%</p>
+                            <p className="text-xs text-gray-400 mt-1">{video.processing_progress}%</p>
                           </div>
                         )}
                       </td>
@@ -653,13 +651,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                       </td>
                       <td className="p-4">
                         <p className="text-gray-300">
-                          {video.fileSize > 0 ? formatFileSize(video.fileSize) : 'N/A'}
+                          {video.file_size > 0 ? formatFileSize(video.file_size) : 'N/A'}
                         </p>
                       </td>
                       <td className="p-4">
                         <div className="flex items-center space-x-2">
                           <FolderOpen className="h-4 w-4 text-blue-400" />
-                          <span className="text-gray-300">{video.totalSegments}</span>
+                          <span className="text-gray-300">{video.total_segments}</span>
                         </div>
                       </td>
                       <td className="p-4">
@@ -766,18 +764,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab('movies')}
-                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors ${
-                    activeTab === 'movies' 
-                      ? 'bg-blue-600 text-white' 
-                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                  }`}
-                >
-                  <Film className="h-5 w-5" />
-                  <span>Phim</span>
-                </button>
-
-                <button
                   onClick={() => setActiveTab('series')}
                   className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors ${
                     activeTab === 'series' 
@@ -786,7 +772,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                   }`}
                 >
                   <Video className="h-5 w-5" />
-                  <span>Series</span>
+                  <span>Series ({seriesData.length})</span>
                 </button>
 
                 <button
@@ -800,18 +786,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                   <Database className="h-5 w-5" />
                   <span>Videos ({videosData.length})</span>
                 </button>
-
-                <button
-                  onClick={() => setActiveTab('analytics')}
-                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors ${
-                    activeTab === 'analytics' 
-                      ? 'bg-blue-600 text-white' 
-                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                  }`}
-                >
-                  <Users className="h-5 w-5" />
-                  <span>Thống Kê</span>
-                </button>
               </div>
             </nav>
           </div>
@@ -820,16 +794,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
           <div className="flex-1 overflow-y-auto">
             <div className="p-8">
               {activeTab === 'overview' && renderOverview()}
-              {activeTab === 'movies' && renderMovies()}
               {activeTab === 'series' && renderSeries()}
               {activeTab === 'videos' && renderVideos()}
-              {activeTab === 'analytics' && (
-                <div className="text-center py-12">
-                  <BarChart3 className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-white text-xl font-semibold mb-2">Thống Kê</h3>
-                  <p className="text-gray-400">Tính năng thống kê sẽ có sớm...</p>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -849,19 +815,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
             const newVideo: VideoData = {
               id: videoData.id,
               title: videoData.title,
-              seriesId: selectedSeries.id,
-              episodeNumber: selectedEpisode.number,
+              series_id: selectedSeries.id,
+              episode_number: selectedEpisode.number,
               status: 'completed',
               duration: videoData.duration || 0,
-              fileSize: videoData.fileSize || 0,
+              file_size: videoData.fileSize || 0,
               uploadedAt: videoData.uploadedAt || new Date().toISOString(),
               hlsUrl: videoData.hlsUrl,
-              totalSegments: videoData.totalSegments || 0,
-              processingProgress: 100,
-              originalFilename: videoData.originalFilename || '',
-              safeFilename: videoData.safeFilename || '',
-              videoPath: videoData.videoPath || '',
-              hlsManifestPath: videoData.hlsManifestPath || null
+              total_segments: videoData.totalSegments || 0,
+              processing_progress: 100,
+              original_filename: videoData.originalFilename || '',
+              safe_filename: videoData.safeFilename || '',
+              video_path: videoData.videoPath || '',
+              hls_manifest_path: videoData.hlsManifestPath || null,
+              seriesTitle: selectedSeries.title,
+              seriesTitleVietnamese: selectedSeries.titleVietnamese
             };
             
             setVideosData(prev => [...prev, newVideo]);

@@ -242,7 +242,7 @@ const upload = multer({
 app.get('/', (req, res) => {
   res.json({
     name: 'AnimeStream Video Server',
-    version: '3.0.0',
+    version: '4.0.0',
     status: 'running',
     timestamp: new Date().toISOString(),
     database: 'PostgreSQL',
@@ -250,19 +250,319 @@ app.get('/', (req, res) => {
       path: process.env.FFMPEG_PATH || 'system',
       status: 'configured'
     },
-    features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'Watch Progress', 'Organized Storage'],
+    features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'Watch Progress', 'Database Management'],
     endpoints: {
+      // Series management
+      getAllSeries: 'GET /api/series',
+      createSeries: 'POST /api/series',
+      updateSeries: 'PUT /api/series/:id',
+      deleteSeries: 'DELETE /api/series/:id',
+      
+      // Episode management
+      getEpisodes: 'GET /api/series/:seriesId/episodes',
+      createEpisode: 'POST /api/series/:seriesId/episodes',
+      updateEpisode: 'PUT /api/episodes/:id',
+      deleteEpisode: 'DELETE /api/episodes/:id',
+      
+      // Video management
       uploadVideo: 'POST /api/upload-video',
       getVideo: 'GET /api/video/:videoId',
       getVideoByEpisode: 'GET /api/videos/:seriesId/:episodeNumber',
       getAllVideos: 'GET /api/videos/all',
       deleteVideo: 'DELETE /api/video/:videoId',
+      
+      // Streaming
       hlsManifest: 'GET /segments/:videoId/playlist.m3u8',
       hlsSegment: 'GET /segments/:videoId/segment_XXX.ts',
+      
+      // Progress
       updateProgress: 'POST /api/progress',
       getProgress: 'GET /api/progress/:userId/:videoId'
     }
   });
+});
+
+// ===== SERIES MANAGEMENT ENDPOINTS =====
+
+// Get all series
+app.get('/api/series', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT s.*, 
+             COUNT(e.id) as actual_episode_count,
+             COUNT(v.id) as videos_count
+      FROM series s
+      LEFT JOIN episodes e ON s.id = e.series_id
+      LEFT JOIN videos v ON s.id = v.series_id AND v.status = 'completed'
+      GROUP BY s.id
+      ORDER BY s.created_at DESC
+    `);
+
+    const series = result.rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      titleVietnamese: row.title_vietnamese,
+      description: row.description,
+      year: row.year,
+      rating: row.rating,
+      genre: row.genre || [],
+      director: row.director,
+      studio: row.studio,
+      thumbnail: row.thumbnail,
+      banner: row.banner,
+      trailer: row.trailer,
+      featured: row.featured,
+      new: row.new,
+      popular: row.popular,
+      episodeCount: parseInt(row.actual_episode_count) || 0,
+      totalDuration: row.total_duration,
+      status: row.status,
+      airDay: row.air_day,
+      airTime: row.air_time,
+      videosCount: parseInt(row.videos_count) || 0,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+
+    res.json({
+      success: true,
+      series
+    });
+
+  } catch (error) {
+    console.error('❌ Database error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Create new series
+app.post('/api/series', async (req, res) => {
+  const {
+    title,
+    titleVietnamese,
+    description,
+    year,
+    rating,
+    genre,
+    director,
+    studio,
+    thumbnail,
+    banner,
+    trailer,
+    featured,
+    new: isNew,
+    popular,
+    totalDuration,
+    status,
+    airDay,
+    airTime
+  } = req.body;
+
+  try {
+    const result = await pool.query(`
+      INSERT INTO series (
+        title, title_vietnamese, description, year, rating, genre,
+        director, studio, thumbnail, banner, trailer, featured,
+        new, popular, total_duration, status, air_day, air_time
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      RETURNING *
+    `, [
+      title, titleVietnamese, description, year, rating, genre || [],
+      director, studio, thumbnail, banner, trailer, featured || false,
+      isNew || false, popular || false, totalDuration, status || 'ongoing',
+      airDay, airTime
+    ]);
+
+    res.json({
+      success: true,
+      series: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Create series error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Update series
+app.put('/api/series/:id', async (req, res) => {
+  const { id } = req.params;
+  const updateFields = req.body;
+
+  try {
+    // Build dynamic update query
+    const setClause = Object.keys(updateFields)
+      .map((key, index) => `${key} = $${index + 2}`)
+      .join(', ');
+    
+    const values = [id, ...Object.values(updateFields)];
+
+    const result = await pool.query(`
+      UPDATE series 
+      SET ${setClause}, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Series not found' 
+      });
+    }
+
+    res.json({
+      success: true,
+      series: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Update series error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Delete series
+app.delete('/api/series/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Delete series (cascade will handle episodes and videos)
+    const result = await pool.query('DELETE FROM series WHERE id = $1 RETURNING *', [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Series not found' 
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Series deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Delete series error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// ===== EPISODE MANAGEMENT ENDPOINTS =====
+
+// Get episodes for a series
+app.get('/api/series/:seriesId/episodes', async (req, res) => {
+  const { seriesId } = req.params;
+
+  try {
+    const result = await pool.query(`
+      SELECT e.*, 
+             v.id as video_id,
+             v.status as video_status,
+             v.hls_manifest_path
+      FROM episodes e
+      LEFT JOIN videos v ON e.series_id = v.series_id AND e.number = v.episode_number
+      WHERE e.series_id = $1
+      ORDER BY e.number ASC
+    `, [seriesId]);
+
+    const episodes = result.rows.map(row => ({
+      id: row.id,
+      seriesId: row.series_id,
+      number: row.number,
+      title: row.title,
+      titleVietnamese: row.title_vietnamese,
+      description: row.description,
+      duration: row.duration,
+      thumbnail: row.thumbnail,
+      releaseDate: row.release_date,
+      rating: row.rating,
+      watched: row.watched,
+      watchProgress: row.watch_progress,
+      lastWatchedAt: row.last_watched_at,
+      guestCast: row.guest_cast,
+      directorNotes: row.director_notes,
+      hasBehindScenes: row.has_behind_scenes,
+      hasCommentary: row.has_commentary,
+      sourceUrl: row.source_url,
+      hasVideo: !!row.video_id,
+      videoStatus: row.video_status,
+      hlsUrl: row.hls_manifest_path ? 
+        `/segments/${path.relative(SEGMENTS_DIR, path.dirname(row.hls_manifest_path))}/playlist.m3u8` : 
+        null
+    }));
+
+    res.json({
+      success: true,
+      episodes
+    });
+
+  } catch (error) {
+    console.error('❌ Database error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Create new episode
+app.post('/api/series/:seriesId/episodes', async (req, res) => {
+  const { seriesId } = req.params;
+  const {
+    number,
+    title,
+    titleVietnamese,
+    description,
+    duration,
+    thumbnail,
+    releaseDate,
+    rating
+  } = req.body;
+
+  try {
+    const result = await pool.query(`
+      INSERT INTO episodes (
+        series_id, number, title, title_vietnamese, description,
+        duration, thumbnail, release_date, rating
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+    `, [
+      seriesId, number, title, titleVietnamese, description,
+      duration, thumbnail, releaseDate, rating || 0
+    ]);
+
+    // Update series episode count
+    await pool.query(`
+      UPDATE series 
+      SET episode_count = (SELECT COUNT(*) FROM episodes WHERE series_id = $1)
+      WHERE id = $1
+    `, [seriesId]);
+
+    res.json({
+      success: true,
+      episode: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Create episode error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
 });
 
 // Upload video endpoint
@@ -319,18 +619,27 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
     console.log(`🎥 Video Codec: ${metadata.videoCodec}`);
     console.log(`🔊 Audio Codec: ${metadata.audioCodec}`);
 
+    // Get episode_id if exists
+    const episodeResult = await client.query(
+      'SELECT id FROM episodes WHERE series_id = $1 AND number = $2',
+      [seriesId, parseInt(episodeNumber)]
+    );
+
+    const episodeId = episodeResult.rows.length > 0 ? episodeResult.rows[0].id : null;
+
     // Insert video record into PostgreSQL
     const insertVideoQuery = `
       INSERT INTO videos (
-        title, series_id, episode_number, original_filename, safe_filename,
+        title, series_id, episode_id, episode_number, original_filename, safe_filename,
         duration, file_size, video_path, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING id
     `;
 
     const result = await client.query(insertVideoQuery, [
       title,
       seriesId,
+      episodeId,
       parseInt(episodeNumber),
       uploadedFile.originalname,
       uploadedFile.filename,
@@ -542,11 +851,13 @@ app.get('/api/videos/all', async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
-        id, title, series_id, episode_number, original_filename, safe_filename,
-        duration, file_size, video_path, hls_manifest_path, status, 
-        processing_progress, total_segments, created_at, updated_at
-      FROM videos 
-      ORDER BY created_at DESC
+        v.id, v.title, v.series_id, v.episode_number, v.original_filename, v.safe_filename,
+        v.duration, v.file_size, v.video_path, v.hls_manifest_path, v.status, 
+        v.processing_progress, v.total_segments, v.created_at, v.updated_at,
+        s.title as series_title, s.title_vietnamese as series_title_vietnamese
+      FROM videos v
+      LEFT JOIN series s ON v.series_id = s.id
+      ORDER BY v.created_at DESC
     `);
 
     const videos = result.rows.map(video => ({
@@ -554,7 +865,9 @@ app.get('/api/videos/all', async (req, res) => {
       hlsUrl: video.hls_manifest_path ? 
         `/segments/${path.relative(SEGMENTS_DIR, path.dirname(video.hls_manifest_path))}/playlist.m3u8` : 
         null,
-      uploadedAt: video.created_at
+      uploadedAt: video.created_at,
+      seriesTitle: video.series_title,
+      seriesTitleVietnamese: video.series_title_vietnamese
     }));
 
     res.json({
@@ -855,7 +1168,7 @@ app.get('/api/health', async (req, res) => {
       status: 'OK', 
       timestamp: new Date().toISOString(),
       server: 'AnimeStream Video Server',
-      version: '3.0.0',
+      version: '4.0.0',
       port: PORT,
       database: {
         type: 'PostgreSQL',
@@ -871,7 +1184,7 @@ app.get('/api/health', async (req, res) => {
         segmentsDir: SEGMENTS_DIR,
         uploadDir: UPLOAD_DIR
       },
-      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'PostgreSQL Storage', 'Watch Progress', 'Rate Limiting', 'Organized File Structure']
+      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'PostgreSQL Storage', 'Watch Progress', 'Rate Limiting', 'Database Management']
     });
   } catch (error) {
     res.status(500).json({
@@ -912,7 +1225,7 @@ app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
     error: 'Route not found',
-    message: 'AnimeStream Video Server - PostgreSQL + FFmpeg HLS + Organized Storage',
+    message: 'AnimeStream Video Server - PostgreSQL + FFmpeg HLS + Database Management',
     requestedUrl: req.originalUrl,
     method: req.method
   });
@@ -932,6 +1245,7 @@ app.listen(PORT, () => {
   console.log(`\n🎯 HLS URLs: http://localhost:${PORT}/segments/{series-name}-tap-{episode}/playlist.m3u8`);
   console.log(`🎬 Browser compatibility: H.264 Baseline + AAC + HLS.js`);
   console.log(`📁 Organized storage: /videos/{series-name}/tap-{episode}/`);
+  console.log(`💾 Database management: Series, Episodes, Videos, Progress tracking`);
 });
 
 // Graceful shutdown

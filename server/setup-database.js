@@ -47,12 +47,70 @@ const setupDatabase = async () => {
     await client.connect();
     console.log(`✅ Connected to database '${process.env.DB_NAME}'`);
 
-    // Create tables
+    // Create series table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS series (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        title VARCHAR(255) NOT NULL,
+        title_vietnamese VARCHAR(255) NOT NULL,
+        description TEXT,
+        year INTEGER NOT NULL,
+        rating REAL DEFAULT 0,
+        genre TEXT[] DEFAULT '{}',
+        director VARCHAR(255),
+        studio VARCHAR(255),
+        thumbnail TEXT,
+        banner TEXT,
+        trailer TEXT,
+        featured BOOLEAN DEFAULT false,
+        new BOOLEAN DEFAULT false,
+        popular BOOLEAN DEFAULT false,
+        episode_count INTEGER DEFAULT 0,
+        total_duration VARCHAR(50),
+        status VARCHAR(20) DEFAULT 'ongoing',
+        air_day VARCHAR(20),
+        air_time VARCHAR(10),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Series table created');
+
+    // Create episodes table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS episodes (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+        number INTEGER NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        title_vietnamese VARCHAR(255) NOT NULL,
+        description TEXT,
+        duration VARCHAR(20),
+        thumbnail TEXT,
+        release_date DATE,
+        rating REAL DEFAULT 0,
+        watched BOOLEAN DEFAULT false,
+        watch_progress REAL DEFAULT 0,
+        last_watched_at TIMESTAMP,
+        guest_cast TEXT[],
+        director_notes TEXT,
+        has_behind_scenes BOOLEAN DEFAULT false,
+        has_commentary BOOLEAN DEFAULT false,
+        source_url TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(series_id, number)
+      )
+    `);
+    console.log('✅ Episodes table created');
+
+    // Create videos table (updated)
     await client.query(`
       CREATE TABLE IF NOT EXISTS videos (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         title VARCHAR(255) NOT NULL,
-        series_id VARCHAR(100) NOT NULL,
+        series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+        episode_id UUID REFERENCES episodes(id) ON DELETE CASCADE,
         episode_number INTEGER NOT NULL,
         original_filename TEXT NOT NULL,
         safe_filename TEXT NOT NULL,
@@ -69,8 +127,9 @@ const setupDatabase = async () => {
         UNIQUE(series_id, episode_number)
       )
     `);
-    console.log('✅ Videos table created');
+    console.log('✅ Videos table updated');
 
+    // Create segments table
     await client.query(`
       CREATE TABLE IF NOT EXISTS segments (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -86,6 +145,7 @@ const setupDatabase = async () => {
     `);
     console.log('✅ Segments table created');
 
+    // Create watch progress table
     await client.query(`
       CREATE TABLE IF NOT EXISTS watch_progress (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -102,6 +162,11 @@ const setupDatabase = async () => {
 
     // Create indexes for better performance
     await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_series_featured ON series(featured);
+      CREATE INDEX IF NOT EXISTS idx_series_new ON series(new);
+      CREATE INDEX IF NOT EXISTS idx_series_popular ON series(popular);
+      CREATE INDEX IF NOT EXISTS idx_episodes_series_id ON episodes(series_id);
+      CREATE INDEX IF NOT EXISTS idx_episodes_number ON episodes(series_id, number);
       CREATE INDEX IF NOT EXISTS idx_videos_series_episode ON videos(series_id, episode_number);
       CREATE INDEX IF NOT EXISTS idx_segments_video_id ON segments(video_id);
       CREATE INDEX IF NOT EXISTS idx_watch_progress_user_video ON watch_progress(user_id, video_id);
