@@ -186,25 +186,25 @@ const removeVietnameseDiacritics = (str) => {
   return str.replace(/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/g, (match) => diacriticsMap[match] || match);
 };
 
-const createSeriesPath = (seriesTitle, episodeNumber) => {
-  // FIXED: Proper Vietnamese diacritics removal
-  const cleanSeriesName = removeVietnameseDiacritics(seriesTitle)
+// FIXED: Create consistent slug for both frontend and backend
+const createSlug = (title) => {
+  return removeVietnameseDiacritics(title)
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '') // Remove special characters but keep converted Vietnamese letters
+    .replace(/[^a-z0-9\s-]/g, '') // Remove special characters but keep converted Vietnamese letters
     .replace(/\s+/g, '-') // Replace spaces with hyphens
     .replace(/-+/g, '-') // Replace multiple hyphens with single
     .trim()
     .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
-  
-  console.log(`🔗 Series folder name: "${seriesTitle}" → "${cleanSeriesName}"`);
-  
+};
+
+// FIXED: Create segments path using seriesId directly (UUID)
+const createSegmentsPath = (seriesId, episodeNumber) => {
   const episodeFolderName = `tap-${episodeNumber.toString().padStart(3, '0')}`;
+  const segmentsPath = path.join(SEGMENTS_DIR, `${seriesId}-${episodeFolderName}`);
   
-  return {
-    seriesPath: path.join(BASE_DIR, cleanSeriesName),
-    episodePath: path.join(BASE_DIR, cleanSeriesName, episodeFolderName),
-    segmentsPath: path.join(SEGMENTS_DIR, `${cleanSeriesName}-${episodeFolderName}`)
-  };
+  console.log(`🔗 Segments path: ${seriesId} episode ${episodeNumber} → ${segmentsPath}`);
+  
+  return segmentsPath;
 };
 
 const getVideoMetadata = (videoPath) => {
@@ -269,7 +269,7 @@ const upload = multer({
 app.get('/', (req, res) => {
   res.json({
     name: 'AnimeStream Video Server',
-    version: '4.0.0',
+    version: '4.1.0',
     status: 'running',
     timestamp: new Date().toISOString(),
     database: 'PostgreSQL',
@@ -277,7 +277,7 @@ app.get('/', (req, res) => {
       path: process.env.FFMPEG_PATH || 'system',
       status: 'configured'
     },
-    features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'Watch Progress', 'Database Management'],
+    features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'Watch Progress', 'Database Management', 'Fixed Path Mapping'],
     endpoints: {
       // Series management
       getAllSeries: 'GET /api/series',
@@ -299,8 +299,8 @@ app.get('/', (req, res) => {
       deleteVideo: 'DELETE /api/video/:videoId',
       
       // Streaming
-      hlsManifest: 'GET /segments/:videoId/playlist.m3u8',
-      hlsSegment: 'GET /segments/:videoId/segment_XXX.ts',
+      hlsManifest: 'GET /segments/:seriesId-tap-XXX/playlist.m3u8',
+      hlsSegment: 'GET /segments/:seriesId-tap-XXX/segment_XXX.ts',
       
       // Progress
       updateProgress: 'POST /api/progress',
@@ -507,11 +507,12 @@ app.get('/api/series/:seriesId/episodes', async (req, res) => {
     `, [seriesId]);
 
     const episodes = result.rows.map(row => {
-      // Create HLS URL if video exists
+      // Create HLS URL if video exists - FIXED PATH MAPPING
       let hlsUrl = null;
       if (row.hls_manifest_path) {
-        const relativePath = path.relative(SEGMENTS_DIR, path.dirname(row.hls_manifest_path));
-        hlsUrl = `/segments/${relativePath}/playlist.m3u8`;
+        // Use seriesId-tap-XXX format for consistency
+        const episodeFolderName = `tap-${row.number.toString().padStart(3, '0')}`;
+        hlsUrl = `/segments/${seriesId}-${episodeFolderName}/playlist.m3u8`;
       }
 
       return {
@@ -633,15 +634,12 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
     console.log(`📹 Processing video: ${title}`);
     console.log(`📊 File: ${uploadedFile.originalname} (${uploadedFile.size} bytes)`);
 
-    // Create organized directory structure
-    const { seriesPath, episodePath, segmentsPath } = createSeriesPath(title.split(' - ')[0], parseInt(episodeNumber));
-    
-    await fs.ensureDir(seriesPath);
-    await fs.ensureDir(episodePath);
+    // FIXED: Create segments path using seriesId directly
+    const segmentsPath = createSegmentsPath(seriesId, parseInt(episodeNumber));
     await fs.ensureDir(segmentsPath);
 
-    // Move uploaded file to organized location
-    const finalVideoPath = path.join(episodePath, `video${path.extname(uploadedFile.originalname)}`);
+    // Move uploaded file to segments directory for processing
+    const finalVideoPath = path.join(segmentsPath, `video${path.extname(uploadedFile.originalname)}`);
     await fs.move(uploadedPath, finalVideoPath);
 
     console.log(`📁 Video moved to: ${finalVideoPath}`);
@@ -691,7 +689,7 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
 
     // Start FFmpeg processing in background
     console.log('🔄 Starting FFmpeg HLS segmentation...');
-    processVideoWithFFmpeg(videoId, finalVideoPath, segmentsPath, metadata.duration);
+    processVideoWithFFmpeg(videoId, finalVideoPath, segmentsPath, metadata.duration, seriesId, parseInt(episodeNumber));
 
     res.json({
       success: true,
@@ -722,8 +720,8 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
   }
 });
 
-// FIXED FFmpeg HLS processing with organized storage
-async function processVideoWithFFmpeg(videoId, videoPath, segmentsPath, duration) {
+// FIXED FFmpeg HLS processing with consistent path mapping
+async function processVideoWithFFmpeg(videoId, videoPath, segmentsPath, duration, seriesId, episodeNumber) {
   const client = await pool.connect();
   
   try {
@@ -848,9 +846,9 @@ async function processVideoWithFFmpeg(videoId, videoPath, segmentsPath, duration
       );
     }
 
-    // Create relative HLS URL for serving
-    const relativeSegmentsPath = path.relative(SEGMENTS_DIR, segmentsPath);
-    const hlsUrl = `/segments/${relativeSegmentsPath}/playlist.m3u8`;
+    // FIXED: Create consistent HLS URL using seriesId-tap-XXX format
+    const episodeFolderName = `tap-${episodeNumber.toString().padStart(3, '0')}`;
+    const hlsUrl = `/segments/${seriesId}-${episodeFolderName}/playlist.m3u8`;
 
     // Update video status to completed
     await client.query(
@@ -897,15 +895,22 @@ app.get('/api/videos/all', async (req, res) => {
       ORDER BY v.created_at DESC
     `);
 
-    const videos = result.rows.map(video => ({
-      ...video,
-      hlsUrl: video.hls_manifest_path ? 
-        `/segments/${path.relative(SEGMENTS_DIR, path.dirname(video.hls_manifest_path))}/playlist.m3u8` : 
-        null,
-      uploadedAt: video.created_at,
-      seriesTitle: video.series_title,
-      seriesTitleVietnamese: video.series_title_vietnamese
-    }));
+    const videos = result.rows.map(video => {
+      // FIXED: Create consistent HLS URL
+      let hlsUrl = null;
+      if (video.hls_manifest_path && video.status === 'completed') {
+        const episodeFolderName = `tap-${video.episode_number.toString().padStart(3, '0')}`;
+        hlsUrl = `/segments/${video.series_id}-${episodeFolderName}/playlist.m3u8`;
+      }
+
+      return {
+        ...video,
+        hlsUrl: hlsUrl,
+        uploadedAt: video.created_at,
+        seriesTitle: video.series_title,
+        seriesTitleVietnamese: video.series_title_vietnamese
+      };
+    });
 
     res.json({
       success: true,
@@ -957,29 +962,12 @@ app.delete('/api/video/:videoId', async (req, res) => {
         console.log(`🗑️ Deleted video file: ${video.video_path}`);
       }
 
-      // Delete the entire episode directory
-      const episodeDir = path.dirname(video.video_path);
-      if (await fs.pathExists(episodeDir)) {
-        await fs.remove(episodeDir);
-        console.log(`🗑️ Deleted episode directory: ${episodeDir}`);
-      }
-
       // Delete HLS segments directory
       if (video.hls_manifest_path) {
         const segmentsDir = path.dirname(video.hls_manifest_path);
         if (await fs.pathExists(segmentsDir)) {
           await fs.remove(segmentsDir);
           console.log(`🗑️ Deleted segments directory: ${segmentsDir}`);
-        }
-      }
-
-      // Check if series directory is empty and remove if so
-      const seriesDir = path.dirname(episodeDir);
-      if (await fs.pathExists(seriesDir)) {
-        const remainingFiles = await fs.readdir(seriesDir);
-        if (remainingFiles.length === 0) {
-          await fs.remove(seriesDir);
-          console.log(`🗑️ Deleted empty series directory: ${seriesDir}`);
         }
       }
 
@@ -1025,6 +1013,13 @@ app.get('/api/video/:videoId', async (req, res) => {
     const video = result.rows[0];
     console.log(`✅ Video found: ${video.title} (${video.status})`);
 
+    // FIXED: Create consistent HLS URL
+    let hlsUrl = null;
+    if (video.status === 'completed' && video.hls_manifest_path) {
+      const episodeFolderName = `tap-${video.episode_number.toString().padStart(3, '0')}`;
+      hlsUrl = `/segments/${video.series_id}-${episodeFolderName}/playlist.m3u8`;
+    }
+
     res.json({
       success: true,
       video: {
@@ -1037,9 +1032,7 @@ app.get('/api/video/:videoId', async (req, res) => {
         status: video.status,
         processingProgress: video.processing_progress,
         totalSegments: video.total_segments,
-        hlsUrl: video.status === 'completed' && video.hls_manifest_path ? 
-          `/segments/${path.relative(SEGMENTS_DIR, path.dirname(video.hls_manifest_path))}/playlist.m3u8` : 
-          null,
+        hlsUrl: hlsUrl,
         createdAt: video.created_at,
         updatedAt: video.updated_at
       }
@@ -1054,7 +1047,7 @@ app.get('/api/video/:videoId', async (req, res) => {
   }
 });
 
-// Get videos by series and episode - SIMPLIFIED (NO INFINITE LOOP)
+// FIXED: Get videos by series and episode with consistent path mapping
 app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
   const { seriesId, episodeNumber } = req.params;
   
@@ -1092,15 +1085,17 @@ app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
       requestTracker.set(videoKey, now);
     }
 
+    // FIXED: Create consistent HLS URL using seriesId-tap-XXX format
+    const episodeFolderName = `tap-${video.episode_number.toString().padStart(3, '0')}`;
+    const hlsUrl = `/segments/${video.series_id}-${episodeFolderName}/playlist.m3u8`;
+
     res.json({
       success: true,
       video: {
         id: video.id,
         title: video.title,
         duration: video.duration,
-        hlsUrl: video.hls_manifest_path ? 
-          `/segments/${path.relative(SEGMENTS_DIR, path.dirname(video.hls_manifest_path))}/playlist.m3u8` : 
-          null,
+        hlsUrl: hlsUrl,
         status: video.status,
         totalSegments: video.total_segments
       }
@@ -1205,7 +1200,7 @@ app.get('/api/health', async (req, res) => {
       status: 'OK', 
       timestamp: new Date().toISOString(),
       server: 'AnimeStream Video Server',
-      version: '4.0.0',
+      version: '4.1.0',
       port: PORT,
       database: {
         type: 'PostgreSQL',
@@ -1221,7 +1216,11 @@ app.get('/api/health', async (req, res) => {
         segmentsDir: SEGMENTS_DIR,
         uploadDir: UPLOAD_DIR
       },
-      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'PostgreSQL Storage', 'Watch Progress', 'Rate Limiting', 'Database Management']
+      pathMapping: {
+        format: 'seriesId-tap-XXX',
+        example: 'uuid-tap-001/playlist.m3u8'
+      },
+      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'PostgreSQL Storage', 'Watch Progress', 'Rate Limiting', 'Database Management', 'Fixed Path Mapping']
     });
   } catch (error) {
     res.status(500).json({
@@ -1262,7 +1261,7 @@ app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
     error: 'Route not found',
-    message: 'AnimeStream Video Server - PostgreSQL + FFmpeg HLS + Database Management',
+    message: 'AnimeStream Video Server - PostgreSQL + FFmpeg HLS + Fixed Path Mapping',
     requestedUrl: req.originalUrl,
     method: req.method
   });
@@ -1279,11 +1278,11 @@ app.listen(PORT, () => {
   console.log(`🌐 CORS enabled for: http://localhost:5173`);
   console.log(`🛡️  Rate limiting enabled`);
   console.log(`📡 HLS streaming ready with HLS.js support!`);
-  console.log(`\n🎯 HLS URLs: http://localhost:${PORT}/segments/{series-name}-tap-{episode}/playlist.m3u8`);
+  console.log(`\n🎯 HLS URLs: http://localhost:${PORT}/segments/{seriesId}-tap-{episode}/playlist.m3u8`);
   console.log(`🎬 Browser compatibility: H.264 Baseline + AAC + HLS.js`);
-  console.log(`📁 Organized storage: /videos/{series-name}/tap-{episode}/`);
+  console.log(`📁 Path mapping: seriesId-tap-XXX format for consistency`);
   console.log(`💾 Database management: Series, Episodes, Videos, Progress tracking`);
-  console.log(`🔗 FIXED: Vietnamese diacritics removal for proper folder names`);
+  console.log(`🔗 FIXED: Consistent path mapping between upload and playback`);
 });
 
 // Graceful shutdown
