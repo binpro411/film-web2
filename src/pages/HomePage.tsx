@@ -58,10 +58,10 @@ const HomePage: React.FC = () => {
       return {
         id: series.id,
         title: series.title,
-        titleVietnamese: series.titleVietnamese || series.title,
+        titleVietnamese: series.title_vietnamese || series.title,
         description: series.description || '',
         year: series.year,
-        duration: series.totalDuration || '24 phút/tập',
+        duration: series.total_duration || '24 phút/tập',
         rating: series.rating,
         genre: series.genre || [],
         director: series.director || '',
@@ -74,8 +74,8 @@ const HomePage: React.FC = () => {
         popular: series.popular || false,
         type: 'series' as const,
         episodeCount: series.episodeCount || 0,
-        airDay: series.airDay as any,
-        airTime: series.airTime,
+        airDay: series.air_day as any,
+        airTime: series.air_time,
         slug: slug // Add slug for URL
       };
     });
@@ -91,7 +91,7 @@ const HomePage: React.FC = () => {
     const query = searchQuery.toLowerCase();
     return allMovies.filter(movie => 
       movie.title.toLowerCase().includes(query) ||
-      movie.titleVietnamese.includes(query) ||
+      movie.titleVietnamese.toLowerCase().includes(query) ||
       movie.genre.some(g => g.toLowerCase().includes(query)) ||
       movie.director.toLowerCase().includes(query)
     );

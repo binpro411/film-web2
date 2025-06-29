@@ -1074,7 +1074,7 @@ app.get('/api/video/:videoId', async (req, res) => {
   }
 });
 
-// NEW: Get videos by series slug and episode number
+// FIXED: Get videos by series slug and episode number
 app.get('/api/videos/:seriesSlug/:episodeNumber', async (req, res) => {
   const { seriesSlug, episodeNumber } = req.params;
   
