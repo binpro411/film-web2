@@ -9,6 +9,7 @@ import {
   Search, 
   Save,
   X,
+  Film,
   Calendar,
   Clock,
   Star,
@@ -17,19 +18,13 @@ import {
   Settings,
   BarChart3,
   Video,
-  AlertTriangle,
-  CheckCircle,
-  Loader2,
-  FolderOpen,
-  HardDrive,
-  Film,
-  Globe,
-  Tag,
-  Image,
   FileText,
-  User,
-  Building
+  Image,
+  CheckCircle,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
+import { Movie, Series, Episode } from '../types';
 import VideoUploadModal from './VideoUploadModal';
 
 interface AdminPanelProps {
@@ -37,8 +32,7 @@ interface AdminPanelProps {
   onClose: () => void;
 }
 
-interface SeriesData {
-  id: string;
+interface SeriesFormData {
   title: string;
   titleVietnamese: string;
   description: string;
@@ -53,19 +47,13 @@ interface SeriesData {
   featured: boolean;
   new: boolean;
   popular: boolean;
-  episodeCount: number;
   totalDuration: string;
   status: 'ongoing' | 'completed' | 'upcoming';
   airDay: string;
   airTime: string;
-  videosCount: number;
-  createdAt: string;
-  updatedAt: string;
 }
 
-interface EpisodeData {
-  id: string;
-  seriesId: string;
+interface EpisodeFormData {
   number: number;
   title: string;
   titleVietnamese: string;
@@ -74,56 +62,33 @@ interface EpisodeData {
   thumbnail: string;
   releaseDate: string;
   rating: number;
-  hasVideo: boolean;
-  videoStatus: string;
-  hlsUrl: string | null;
-}
-
-interface VideoData {
-  id: string;
-  title: string;
-  series_id: string;
-  episode_number: number;
-  status: 'completed' | 'processing' | 'failed';
-  duration: number;
-  file_size: number;
-  uploadedAt: string;
-  hlsUrl: string | null;
-  total_segments: number;
-  processing_progress: number;
-  original_filename: string;
-  safe_filename: string;
-  video_path: string;
-  hls_manifest_path: string | null;
-  seriesTitle: string;
-  seriesTitleVietnamese: string;
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'series'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedSeries, setSelectedSeries] = useState<SeriesData | null>(null);
-  const [selectedEpisode, setSelectedEpisode] = useState<EpisodeData | null>(null);
+  const [selectedSeries, setSelectedSeries] = useState<any>(null);
+  const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
+  const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
+  const [isEpisodeModalOpen, setIsEpisodeModalOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [isEditSeriesModalOpen, setIsEditSeriesModalOpen] = useState(false);
-  const [editingSeries, setEditingSeries] = useState<SeriesData | null>(null);
-  const [isAddEpisodeModalOpen, setIsAddEpisodeModalOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Data states
-  const [seriesData, setSeriesData] = useState<SeriesData[]>([]);
-  const [episodesData, setEpisodesData] = useState<EpisodeData[]>([]);
-  const [videosData, setVideosData] = useState<VideoData[]>([]);
+  const [seriesData, setSeriesData] = useState<any[]>([]);
+  const [videosData, setVideosData] = useState<any[]>([]);
+  const [episodesData, setEpisodesData] = useState<any[]>([]);
 
-  // Form states for series
-  const [seriesForm, setSeriesForm] = useState({
+  // Form states
+  const [seriesForm, setSeriesForm] = useState<SeriesFormData>({
     title: '',
     titleVietnamese: '',
     description: '',
     year: new Date().getFullYear(),
     rating: 0,
-    genre: [] as string[],
+    genre: [],
     director: '',
     studio: '',
     thumbnail: '',
@@ -133,13 +98,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     new: false,
     popular: false,
     totalDuration: '',
-    status: 'ongoing' as 'ongoing' | 'completed' | 'upcoming',
+    status: 'ongoing',
     airDay: '',
     airTime: ''
   });
 
-  // Episode form states
-  const [episodeForm, setEpisodeForm] = useState({
+  const [episodeForm, setEpisodeForm] = useState<EpisodeFormData>({
     number: 1,
     title: '',
     titleVietnamese: '',
@@ -156,7 +120,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   ];
 
   const weekDays = [
-    { value: '', label: 'Không xác định' },
     { value: 'monday', label: 'Thứ Hai' },
     { value: 'tuesday', label: 'Thứ Ba' },
     { value: 'wednesday', label: 'Thứ Tư' },
@@ -166,54 +129,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     { value: 'sunday', label: 'Chủ Nhật' }
   ];
 
-  // Load series data
-  const loadSeriesData = async () => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('http://localhost:3001/api/series');
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          setSeriesData(data.series);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load series:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Load episodes for selected series
-  const loadEpisodesData = async (seriesId: string) => {
-    try {
-      const response = await fetch(`http://localhost:3001/api/series/${seriesId}/episodes`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          setEpisodesData(data.episodes);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load episodes:', error);
-    }
-  };
-
-  // Load videos data
-  const loadVideosData = async () => {
-    try {
-      const response = await fetch('http://localhost:3001/api/videos/all');
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          setVideosData(data.videos);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load videos:', error);
-    }
-  };
-
+  // Load data
   useEffect(() => {
     if (isOpen) {
       loadSeriesData();
@@ -221,11 +137,50 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     }
   }, [isOpen]);
 
-  useEffect(() => {
-    if (selectedSeries) {
-      loadEpisodesData(selectedSeries.id);
+  const loadSeriesData = async () => {
+    try {
+      setIsLoading(true);
+      const response = await fetch('http://localhost:3001/api/series');
+      const data = await response.json();
+      
+      if (data.success) {
+        setSeriesData(data.series);
+      } else {
+        setError('Không thể tải dữ liệu series');
+      }
+    } catch (error) {
+      console.error('Error loading series:', error);
+      setError('Lỗi kết nối server');
+    } finally {
+      setIsLoading(false);
     }
-  }, [selectedSeries]);
+  };
+
+  const loadVideosData = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/videos/all');
+      const data = await response.json();
+      
+      if (data.success) {
+        setVideosData(data.videos);
+      }
+    } catch (error) {
+      console.error('Error loading videos:', error);
+    }
+  };
+
+  const loadEpisodesForSeries = async (seriesId: string) => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/series/${seriesId}/episodes`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setEpisodesData(data.episodes);
+      }
+    } catch (error) {
+      console.error('Error loading episodes:', error);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -247,134 +202,99 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleVideoUpload = (seriesId: string, episodeNumber: number) => {
-    const targetSeries = seriesData.find(s => s.id === seriesId);
-    if (targetSeries) {
-      setSelectedSeries(targetSeries);
-      const targetEpisode = episodesData.find(ep => ep.number === episodeNumber);
-      if (targetEpisode) {
-        setSelectedEpisode(targetEpisode);
-        setIsUploadModalOpen(true);
+  const handleCreateSeries = async () => {
+    try {
+      setIsLoading(true);
+      const response = await fetch('http://localhost:3001/api/series', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(seriesForm)
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await loadSeriesData();
+        setIsSeriesModalOpen(false);
+        resetSeriesForm();
+      } else {
+        setError(data.error || 'Không thể tạo series');
       }
+    } catch (error) {
+      console.error('Error creating series:', error);
+      setError('Lỗi kết nối server');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreateEpisode = async () => {
+    if (!selectedSeries) return;
+
+    try {
+      setIsLoading(true);
+      const response = await fetch(`http://localhost:3001/api/series/${selectedSeries.id}/episodes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(episodeForm)
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await loadEpisodesForSeries(selectedSeries.id);
+        setIsEpisodeModalOpen(false);
+        resetEpisodeForm();
+      } else {
+        setError(data.error || 'Không thể tạo episode');
+      }
+    } catch (error) {
+      console.error('Error creating episode:', error);
+      setError('Lỗi kết nối server');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleDeleteVideo = async (videoId: string) => {
-    if (deleteConfirm !== videoId) {
-      setDeleteConfirm(videoId);
-      setTimeout(() => setDeleteConfirm(null), 3000);
+    if (!confirm('Bạn có chắc chắn muốn xóa video này? Hành động này không thể hoàn tác.')) {
       return;
     }
 
-    setIsLoading(true);
+    if (!confirm('Xác nhận lần 2: Video và tất cả files liên quan sẽ bị xóa vĩnh viễn!')) {
+      return;
+    }
+
     try {
+      setIsLoading(true);
       const response = await fetch(`http://localhost:3001/api/video/${videoId}`, {
-        method: 'DELETE',
+        method: 'DELETE'
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          setVideosData(prev => prev.filter(v => v.id !== videoId));
-          setDeleteConfirm(null);
-          alert('Video đã được xóa thành công!');
-          // Reload episodes to update video status
-          if (selectedSeries) {
-            loadEpisodesData(selectedSeries.id);
-          }
-        } else {
-          alert(`Lỗi xóa video: ${data.error}`);
+      const data = await response.json();
+      
+      if (data.success) {
+        await loadVideosData();
+        if (selectedSeries) {
+          await loadEpisodesForSeries(selectedSeries.id);
         }
       } else {
-        alert('Không thể xóa video. Vui lòng thử lại.');
+        setError(data.error || 'Không thể xóa video');
       }
     } catch (error) {
-      console.error('Delete video error:', error);
-      alert('Có lỗi xảy ra khi xóa video.');
+      console.error('Error deleting video:', error);
+      setError('Lỗi kết nối server');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSaveSeries = async () => {
-    setIsLoading(true);
-    try {
-      const url = editingSeries 
-        ? `http://localhost:3001/api/series/${editingSeries.id}`
-        : 'http://localhost:3001/api/series';
-      
-      const method = editingSeries ? 'PUT' : 'POST';
-      
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(seriesForm),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          if (editingSeries) {
-            // Update existing series
-            setSeriesData(prev => prev.map(s => 
-              s.id === editingSeries.id ? { ...s, ...seriesForm } : s
-            ));
-          } else {
-            // Add new series
-            loadSeriesData(); // Reload to get the new series with proper ID
-          }
-          
-          setIsEditSeriesModalOpen(false);
-          setEditingSeries(null);
-          resetSeriesForm();
-          alert(editingSeries ? 'Series đã được cập nhật!' : 'Series mới đã được tạo!');
-        } else {
-          alert(`Lỗi: ${data.error}`);
-        }
-      } else {
-        alert('Không thể lưu series. Vui lòng thử lại.');
-      }
-    } catch (error) {
-      console.error('Save series error:', error);
-      alert('Có lỗi xảy ra khi lưu series.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSaveEpisode = async () => {
-    if (!selectedSeries) return;
-
-    setIsLoading(true);
-    try {
-      const response = await fetch(`http://localhost:3001/api/series/${selectedSeries.id}/episodes`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(episodeForm),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          loadEpisodesData(selectedSeries.id);
-          setIsAddEpisodeModalOpen(false);
-          resetEpisodeForm();
-          alert('Episode mới đã được tạo!');
-        } else {
-          alert(`Lỗi: ${data.error}`);
-        }
-      } else {
-        alert('Không thể tạo episode. Vui lòng thử lại.');
-      }
-    } catch (error) {
-      console.error('Save episode error:', error);
-      alert('Có lỗi xảy ra khi tạo episode.');
-    } finally {
-      setIsLoading(false);
+  const handleVideoUpload = (seriesId: string, episodeNumber: number) => {
+    const targetSeries = seriesData.find(s => s.id === seriesId);
+    if (targetSeries) {
+      setSelectedSeries(targetSeries);
+      setSelectedEpisode({ number: episodeNumber } as Episode);
+      setIsUploadModalOpen(true);
     }
   };
 
@@ -403,7 +323,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
 
   const resetEpisodeForm = () => {
     setEpisodeForm({
-      number: episodesData.length + 1,
+      number: 1,
       title: '',
       titleVietnamese: '',
       description: '',
@@ -412,49 +332,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
       releaseDate: new Date().toISOString().split('T')[0],
       rating: 0
     });
-  };
-
-  const openEditSeries = (series: SeriesData | null) => {
-    if (series) {
-      setEditingSeries(series);
-      setSeriesForm({
-        title: series.title,
-        titleVietnamese: series.titleVietnamese,
-        description: series.description,
-        year: series.year,
-        rating: series.rating,
-        genre: series.genre,
-        director: series.director,
-        studio: series.studio,
-        thumbnail: series.thumbnail,
-        banner: series.banner,
-        trailer: series.trailer,
-        featured: series.featured,
-        new: series.new,
-        popular: series.popular,
-        totalDuration: series.totalDuration,
-        status: series.status,
-        airDay: series.airDay,
-        airTime: series.airTime
-      });
-    } else {
-      setEditingSeries(null);
-      resetSeriesForm();
-    }
-    setIsEditSeriesModalOpen(true);
-  };
-
-  const getVideoStatus = (video: VideoData) => {
-    switch (video.status) {
-      case 'completed':
-        return { text: 'Hoàn thành', color: 'bg-green-500/20 text-green-400', icon: CheckCircle };
-      case 'processing':
-        return { text: 'Đang xử lý', color: 'bg-yellow-500/20 text-yellow-400', icon: Loader2 };
-      case 'failed':
-        return { text: 'Lỗi', color: 'bg-red-500/20 text-red-400', icon: AlertTriangle };
-      default:
-        return { text: 'Không xác định', color: 'bg-gray-500/20 text-gray-400', icon: AlertTriangle };
-    }
   };
 
   const renderOverview = () => (
@@ -475,7 +352,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-purple-100 text-sm">Tổng Episodes</p>
-              <p className="text-3xl font-bold">{seriesData.reduce((total, series) => total + series.episodeCount, 0)}</p>
+              <p className="text-3xl font-bold">{seriesData.reduce((sum, s) => sum + s.episodeCount, 0)}</p>
             </div>
             <Video className="h-12 w-12 text-purple-200" />
           </div>
@@ -484,48 +361,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-xl p-6 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-green-100 text-sm">Videos Hoàn thành</p>
+              <p className="text-green-100 text-sm">Videos Uploaded</p>
               <p className="text-3xl font-bold">{videosData.filter(v => v.status === 'completed').length}</p>
             </div>
-            <CheckCircle className="h-12 w-12 text-green-200" />
+            <Upload className="h-12 w-12 text-green-200" />
           </div>
         </div>
 
         <div className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl p-6 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-orange-100 text-sm">Đang xử lý</p>
+              <p className="text-orange-100 text-sm">Processing</p>
               <p className="text-3xl font-bold">{videosData.filter(v => v.status === 'processing').length}</p>
             </div>
-            <Loader2 className="h-12 w-12 text-orange-200" />
-          </div>
-        </div>
-      </div>
-
-      {/* Storage Info */}
-      <div className="bg-gray-800 rounded-xl p-6">
-        <h3 className="text-white font-semibold text-lg mb-4 flex items-center space-x-2">
-          <HardDrive className="h-5 w-5" />
-          <span>Thông Tin Lưu Trữ</span>
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-gray-700 rounded-lg p-4">
-            <p className="text-gray-400 text-sm">Tổng dung lượng</p>
-            <p className="text-white text-xl font-bold">
-              {formatFileSize(videosData.reduce((total, video) => total + video.file_size, 0))}
-            </p>
-          </div>
-          <div className="bg-gray-700 rounded-lg p-4">
-            <p className="text-gray-400 text-sm">Tổng segments</p>
-            <p className="text-white text-xl font-bold">
-              {videosData.reduce((total, video) => total + video.total_segments, 0)}
-            </p>
-          </div>
-          <div className="bg-gray-700 rounded-lg p-4">
-            <p className="text-gray-400 text-sm">Thời lượng video</p>
-            <p className="text-white text-xl font-bold">
-              {formatDuration(videosData.reduce((total, video) => total + video.duration, 0))}
-            </p>
+            <Clock className="h-12 w-12 text-orange-200" />
           </div>
         </div>
       </div>
@@ -537,30 +386,30 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
           <span>Hoạt Động Gần Đây</span>
         </h3>
         <div className="space-y-3">
-          {videosData.slice(0, 5).map((video) => {
-            const status = getVideoStatus(video);
-            const StatusIcon = status.icon;
-            
-            return (
-              <div key={video.id} className="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <StatusIcon className={`w-5 h-5 ${video.status === 'processing' ? 'animate-spin' : ''} ${
-                    video.status === 'completed' ? 'text-green-400' : 
-                    video.status === 'processing' ? 'text-yellow-400' : 'text-red-400'
-                  }`} />
-                  <div>
-                    <p className="text-white font-medium">{video.title}</p>
-                    <p className="text-gray-400 text-sm">
-                      {new Date(video.uploadedAt).toLocaleDateString('vi-VN')}
-                    </p>
-                  </div>
+          {videosData.slice(0, 5).map((video) => (
+            <div key={video.id} className="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <div className={`w-3 h-3 rounded-full ${
+                  video.status === 'completed' ? 'bg-green-400' : 
+                  video.status === 'processing' ? 'bg-yellow-400' : 'bg-red-400'
+                }`} />
+                <div>
+                  <p className="text-white font-medium">{video.title}</p>
+                  <p className="text-gray-400 text-sm">
+                    {new Date(video.uploadedAt).toLocaleDateString('vi-VN')}
+                  </p>
                 </div>
-                <span className={`px-2 py-1 rounded text-xs font-medium ${status.color}`}>
-                  {status.text}
-                </span>
               </div>
-            );
-          })}
+              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                video.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                video.status === 'processing' ? 'bg-yellow-500/20 text-yellow-400' :
+                'bg-red-500/20 text-red-400'
+              }`}>
+                {video.status === 'completed' ? 'Hoàn thành' :
+                 video.status === 'processing' ? 'Đang xử lý' : 'Lỗi'}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -572,7 +421,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-white">Quản Lý Series</h2>
         <button
-          onClick={() => openEditSeries(null)}
+          onClick={() => {
+            resetSeriesForm();
+            setEditingItem(null);
+            setIsSeriesModalOpen(true);
+          }}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
         >
           <Plus className="h-4 w-4" />
@@ -592,178 +445,240 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         />
       </div>
 
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="h-5 w-5 text-red-400" />
+            <p className="text-red-400">{error}</p>
+            <button
+              onClick={() => setError(null)}
+              className="ml-auto text-red-400 hover:text-red-300"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Loading */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-8 w-8 text-blue-400 animate-spin" />
+          <span className="text-white ml-2">Đang tải...</span>
+        </div>
+      )}
+
       {/* Series List */}
       <div className="space-y-4">
-        {isLoading ? (
-          <div className="text-center py-8">
-            <Loader2 className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-4" />
-            <p className="text-gray-400">Đang tải dữ liệu...</p>
-          </div>
-        ) : (
-          seriesData
-            .filter(series => 
-              series.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-              series.titleVietnamese.includes(searchQuery)
-            )
-            .map((seriesItem) => (
-              <div key={seriesItem.id} className="bg-gray-800 rounded-xl p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex space-x-4">
-                    <img
-                      src={seriesItem.thumbnail || 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg?auto=compress&cs=tinysrgb&w=400'}
-                      alt={seriesItem.title}
-                      className="w-24 h-36 object-cover rounded-lg"
-                    />
-                    <div>
-                      <h3 className="text-white font-semibold text-xl mb-1">{seriesItem.title}</h3>
-                      <p className="text-blue-300 mb-2">{seriesItem.titleVietnamese}</p>
-                      <div className="flex items-center space-x-4 text-sm text-gray-400 mb-2">
-                        <span>{seriesItem.year}</span>
-                        <span>{seriesItem.episodeCount} tập</span>
-                        <span>{seriesItem.videosCount} videos</span>
-                        <div className="flex items-center space-x-1">
-                          <Star className="h-3 w-3 text-yellow-400 fill-current" />
-                          <span>{seriesItem.rating}</span>
-                        </div>
+        {seriesData
+          .filter(series => 
+            series.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            series.titleVietnamese.includes(searchQuery)
+          )
+          .map((series) => (
+            <div key={series.id} className="bg-gray-800 rounded-xl p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex space-x-4">
+                  <img
+                    src={series.thumbnail || 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg?auto=compress&cs=tinysrgb&w=200'}
+                    alt={series.title}
+                    className="w-24 h-36 object-cover rounded-lg"
+                  />
+                  <div>
+                    <h3 className="text-white font-semibold text-xl mb-1">{series.title}</h3>
+                    <p className="text-blue-300 mb-2">{series.titleVietnamese}</p>
+                    <div className="flex items-center space-x-4 text-sm text-gray-400 mb-2">
+                      <span>{series.year}</span>
+                      <span>{series.episodeCount} tập</span>
+                      <span>{series.videosCount} videos</span>
+                      <div className="flex items-center space-x-1">
+                        <Star className="h-3 w-3 text-yellow-400 fill-current" />
+                        <span>{series.rating}</span>
                       </div>
-                      <div className="flex flex-wrap gap-1 mb-2">
-                        {seriesItem.genre.slice(0, 3).map((genre, index) => (
-                          <span
-                            key={index}
-                            className="bg-gray-700 text-gray-300 px-2 py-1 rounded text-xs"
-                          >
-                            {genre}
-                          </span>
-                        ))}
-                      </div>
-                      <p className="text-gray-400 text-sm line-clamp-2">{seriesItem.description}</p>
                     </div>
-                  </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => setSelectedSeries(selectedSeries?.id === seriesItem.id ? null : seriesItem)}
-                      className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm transition-colors flex items-center space-x-1"
-                    >
-                      <Eye className="h-4 w-4" />
-                      <span>{selectedSeries?.id === seriesItem.id ? 'Ẩn' : 'Xem'} Tập</span>
-                    </button>
-                    <button
-                      onClick={() => openEditSeries(seriesItem)}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm transition-colors"
-                    >
-                      <Edit className="h-4 w-4" />
-                    </button>
+                    <div className="flex flex-wrap gap-1">
+                      {series.genre.slice(0, 3).map((genre, index) => (
+                        <span
+                          key={index}
+                          className="bg-gray-700 text-gray-300 px-2 py-1 rounded text-xs"
+                        >
+                          {genre}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
-
-                {/* Episodes Preview */}
-                {selectedSeries?.id === seriesItem.id && (
-                  <div className="border-t border-gray-700 pt-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <h4 className="text-white font-medium">Danh Sách Tập ({episodesData.length})</h4>
-                      <button
-                        onClick={() => {
-                          resetEpisodeForm();
-                          setIsAddEpisodeModalOpen(true);
-                        }}
-                        className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm transition-colors flex items-center space-x-1"
-                      >
-                        <Plus className="h-4 w-4" />
-                        <span>Thêm Tập</span>
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {episodesData.map((episode) => {
-                        const episodeVideos = videosData.filter(v => 
-                          v.series_id === seriesItem.id && v.episode_number === episode.number
-                        );
-                        const hasVideo = episodeVideos.length > 0;
-                        const videoStatus = hasVideo ? episodeVideos[0].status : null;
-                        
-                        return (
-                          <div key={episode.id} className="bg-gray-700 rounded-lg p-4">
-                            <div className="flex items-center justify-between mb-2">
-                              <h5 className="text-white font-medium">Tập {episode.number}</h5>
-                              <div className="flex space-x-1">
-                                {!hasVideo && (
-                                  <button
-                                    onClick={() => handleVideoUpload(seriesItem.id, episode.number)}
-                                    className="bg-green-600 hover:bg-green-700 text-white p-1 rounded transition-colors"
-                                    title="Upload Video"
-                                  >
-                                    <Upload className="h-3 w-3" />
-                                  </button>
-                                )}
-                                {hasVideo && (
-                                  <button
-                                    onClick={() => handleDeleteVideo(episodeVideos[0].id)}
-                                    className={`text-white p-1 rounded transition-colors ${
-                                      deleteConfirm === episodeVideos[0].id 
-                                        ? 'bg-red-700 hover:bg-red-800' 
-                                        : 'bg-red-600 hover:bg-red-700'
-                                    }`}
-                                    title={deleteConfirm === episodeVideos[0].id ? 'Click lại để xác nhận xóa' : 'Xóa video'}
-                                  >
-                                    {deleteConfirm === episodeVideos[0].id ? (
-                                      <AlertTriangle className="h-3 w-3" />
-                                    ) : (
-                                      <Trash2 className="h-3 w-3" />
-                                    )}
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => {/* Edit episode logic */}}
-                                  className="bg-blue-600 hover:bg-blue-700 text-white p-1 rounded transition-colors"
-                                >
-                                  <Edit className="h-3 w-3" />
-                                </button>
-                              </div>
-                            </div>
-                            <p className="text-gray-300 text-sm mb-1">{episode.title}</p>
-                            <p className="text-blue-300 text-xs mb-2">{episode.titleVietnamese}</p>
-                            <div className="flex items-center justify-between text-xs text-gray-400">
-                              <span>{episode.duration}</span>
-                              <div className="flex items-center space-x-2">
-                                <div className={`w-2 h-2 rounded-full ${
-                                  hasVideo ? 
-                                    (videoStatus === 'completed' ? 'bg-green-400' : 
-                                     videoStatus === 'processing' ? 'bg-yellow-400' : 'bg-red-400') 
-                                    : 'bg-gray-400'
-                                }`} />
-                                <span>
-                                  {hasVideo ? 
-                                    (videoStatus === 'completed' ? 'Hoàn thành' : 
-                                     videoStatus === 'processing' ? 'Đang xử lý' : 'Lỗi') 
-                                    : 'Chưa có video'}
-                                </span>
-                              </div>
-                            </div>
-                            {hasVideo && videoStatus === 'processing' && episodeVideos[0].processing_progress > 0 && (
-                              <div className="mt-2">
-                                <div className="w-full bg-gray-600 rounded-full h-1">
-                                  <div 
-                                    className="bg-yellow-400 h-1 rounded-full transition-all"
-                                    style={{ width: `${episodeVideos[0].processing_progress}%` }}
-                                  />
-                                </div>
-                                <p className="text-xs text-gray-400 mt-1">{episodeVideos[0].processing_progress}%</p>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => {
+                      setSelectedSeries(series);
+                      loadEpisodesForSeries(series.id);
+                    }}
+                    className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm transition-colors flex items-center space-x-1"
+                  >
+                    <Eye className="h-4 w-4" />
+                    <span>Quản Lý Episodes</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingItem(series);
+                      setSeriesForm({
+                        title: series.title,
+                        titleVietnamese: series.titleVietnamese,
+                        description: series.description,
+                        year: series.year,
+                        rating: series.rating,
+                        genre: series.genre,
+                        director: series.director,
+                        studio: series.studio,
+                        thumbnail: series.thumbnail,
+                        banner: series.banner,
+                        trailer: series.trailer,
+                        featured: series.featured,
+                        new: series.new,
+                        popular: series.popular,
+                        totalDuration: series.totalDuration,
+                        status: series.status,
+                        airDay: series.airDay,
+                        airTime: series.airTime
+                      });
+                      setIsSeriesModalOpen(true);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm transition-colors"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm('Bạn có chắc chắn muốn xóa series này?')) {
+                        // Handle delete series
+                      }
+                    }}
+                    className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
-            ))
-        )}
+
+              {/* Episodes Management */}
+              {selectedSeries?.id === series.id && (
+                <div className="border-t border-gray-700 pt-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-white font-medium">Danh Sách Episodes ({episodesData.length})</h4>
+                    <button
+                      onClick={() => {
+                        resetEpisodeForm();
+                        setEpisodeForm(prev => ({ ...prev, number: episodesData.length + 1 }));
+                        setIsEpisodeModalOpen(true);
+                      }}
+                      className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm transition-colors flex items-center space-x-1"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>Thêm Episode</span>
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {episodesData.map((episode) => {
+                      const hasVideo = videosData.some(v => 
+                        v.series_id === series.id && 
+                        v.episode_number === episode.number && 
+                        v.status === 'completed'
+                      );
+                      
+                      const video = videosData.find(v => 
+                        v.series_id === series.id && 
+                        v.episode_number === episode.number
+                      );
+                      
+                      return (
+                        <div key={episode.id} className="bg-gray-700 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h5 className="text-white font-medium">Tập {episode.number}</h5>
+                            <div className="flex space-x-1">
+                              {!hasVideo && (
+                                <button
+                                  onClick={() => handleVideoUpload(series.id, episode.number)}
+                                  className="bg-green-600 hover:bg-green-700 text-white p-1 rounded transition-colors"
+                                  title="Upload Video"
+                                >
+                                  <Upload className="h-3 w-3" />
+                                </button>
+                              )}
+                              {video && (
+                                <button
+                                  onClick={() => handleDeleteVideo(video.id)}
+                                  className="bg-red-600 hover:bg-red-700 text-white p-1 rounded transition-colors"
+                                  title="Xóa Video"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setEditingItem(episode);
+                                  setEpisodeForm({
+                                    number: episode.number,
+                                    title: episode.title,
+                                    titleVietnamese: episode.titleVietnamese,
+                                    description: episode.description,
+                                    duration: episode.duration,
+                                    thumbnail: episode.thumbnail,
+                                    releaseDate: episode.releaseDate,
+                                    rating: episode.rating
+                                  });
+                                  setIsEpisodeModalOpen(true);
+                                }}
+                                className="bg-blue-600 hover:bg-blue-700 text-white p-1 rounded transition-colors"
+                              >
+                                <Edit className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-gray-300 text-sm mb-1">{episode.title}</p>
+                          <p className="text-blue-300 text-xs mb-2">{episode.titleVietnamese}</p>
+                          <div className="flex items-center justify-between text-xs text-gray-400">
+                            <span>{episode.duration}</span>
+                            <div className="flex items-center space-x-2">
+                              <div className={`w-2 h-2 rounded-full ${
+                                hasVideo ? 'bg-green-400' : 
+                                video?.status === 'processing' ? 'bg-yellow-400' : 'bg-red-400'
+                              }`} />
+                              <span>
+                                {hasVideo ? 'Có video' : 
+                                 video?.status === 'processing' ? 'Đang xử lý' : 'Chưa có video'}
+                              </span>
+                            </div>
+                          </div>
+                          {video?.status === 'processing' && (
+                            <div className="mt-2">
+                              <div className="w-full bg-gray-600 rounded-full h-1">
+                                <div 
+                                  className="bg-yellow-400 h-1 rounded-full transition-all"
+                                  style={{ width: `${video.processing_progress || 0}%` }}
+                                />
+                              </div>
+                              <p className="text-yellow-400 text-xs mt-1">
+                                {video.processing_progress || 0}% hoàn thành
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
       </div>
     </div>
   );
 
   return (
     <>
+      {/* Main Admin Panel */}
       <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
         <div className="flex h-full">
           {/* Sidebar */}
@@ -805,7 +720,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                   }`}
                 >
                   <Video className="h-5 w-5" />
-                  <span>Series & Videos ({seriesData.length})</span>
+                  <span>Quản Lý Series</span>
                 </button>
               </div>
             </nav>
@@ -821,27 +736,29 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         </div>
       </div>
 
-      {/* Series Edit/Create Modal */}
-      {isEditSeriesModalOpen && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      {/* Series Modal - Z-INDEX CAO NHẤT */}
+      {isSeriesModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="bg-gray-900 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto relative border border-gray-700">
-            <div className="p-6 border-b border-gray-700">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-white">
-                  {editingSeries ? 'Chỉnh Sửa Series' : 'Thêm Series Mới'}
-                </h2>
-                <button
-                  onClick={() => setIsEditSeriesModalOpen(false)}
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  <X className="h-6 w-6" />
-                </button>
-              </div>
+            {/* Close Button */}
+            <button
+              onClick={() => setIsSeriesModalOpen(false)}
+              className="absolute top-4 right-4 z-10 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
+            >
+              <X className="h-6 w-6" />
+            </button>
+
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-6 rounded-t-2xl">
+              <h2 className="text-2xl font-bold text-white">
+                {editingItem ? 'Chỉnh Sửa Series' : 'Thêm Series Mới'}
+              </h2>
             </div>
 
+            {/* Form */}
             <div className="p-6 space-y-6">
               {/* Basic Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Tên Series (Tiếng Anh) *
@@ -854,7 +771,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                     placeholder="A Record of Mortal's Journey to Immortality"
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Tên Series (Tiếng Việt) *
@@ -884,36 +800,32 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
               </div>
 
               {/* Year, Rating, Status */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Năm phát hành *
+                    Năm phát hành
                   </label>
                   <input
                     type="number"
                     value={seriesForm.year}
                     onChange={(e) => setSeriesForm(prev => ({ ...prev, year: parseInt(e.target.value) }))}
                     className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    min="1900"
-                    max="2030"
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Đánh giá (0-10)
                   </label>
                   <input
                     type="number"
+                    step="0.1"
+                    min="0"
+                    max="10"
                     value={seriesForm.rating}
                     onChange={(e) => setSeriesForm(prev => ({ ...prev, rating: parseFloat(e.target.value) }))}
                     className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    min="0"
-                    max="10"
-                    step="0.1"
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Trạng thái
@@ -931,7 +843,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
               </div>
 
               {/* Director, Studio, Duration */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Đạo diễn
@@ -944,7 +856,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                     placeholder="Tên đạo diễn"
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Studio
@@ -957,7 +868,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                     placeholder="Tên studio"
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Tổng thời lượng
@@ -977,7 +887,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Thể loại
                 </label>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
                   {genreOptions.map((genre) => (
                     <label key={genre} className="flex items-center space-x-2 text-gray-300">
                       <input
@@ -999,7 +909,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
               </div>
 
               {/* Images */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Thumbnail URL
@@ -1012,7 +922,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                     placeholder="https://example.com/thumbnail.jpg"
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Banner URL
@@ -1028,7 +937,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
               </div>
 
               {/* Air Schedule */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Ngày phát sóng
@@ -1038,12 +947,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                     onChange={(e) => setSeriesForm(prev => ({ ...prev, airDay: e.target.value }))}
                     className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
+                    <option value="">Chọn ngày</option>
                     {weekDays.map((day) => (
                       <option key={day.value} value={day.value}>{day.label}</option>
                     ))}
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Giờ phát sóng
@@ -1058,7 +967,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
               </div>
 
               {/* Flags */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-3 gap-4">
                 <label className="flex items-center space-x-2 text-gray-300">
                   <input
                     type="checkbox"
@@ -1068,7 +977,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                   />
                   <span>Nổi bật</span>
                 </label>
-
                 <label className="flex items-center space-x-2 text-gray-300">
                   <input
                     type="checkbox"
@@ -1078,7 +986,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                   />
                   <span>Mới</span>
                 </label>
-
                 <label className="flex items-center space-x-2 text-gray-300">
                   <input
                     type="checkbox"
@@ -1091,21 +998,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex justify-end space-x-4 pt-6 border-t border-gray-700">
+              <div className="flex space-x-4 pt-4">
                 <button
-                  onClick={() => setIsEditSeriesModalOpen(false)}
-                  className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                  onClick={handleCreateSeries}
+                  disabled={isLoading || !seriesForm.title || !seriesForm.titleVietnamese}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white py-3 rounded-lg font-semibold transition-colors flex items-center justify-center space-x-2"
                 >
-                  Hủy
+                  {isLoading && <Loader2 className="h-5 w-5 animate-spin" />}
+                  <Save className="h-5 w-5" />
+                  <span>{editingItem ? 'Cập Nhật' : 'Tạo Series'}</span>
                 </button>
                 <button
-                  onClick={handleSaveSeries}
-                  disabled={isLoading || !seriesForm.title || !seriesForm.titleVietnamese}
-                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg transition-colors flex items-center space-x-2"
+                  onClick={() => setIsSeriesModalOpen(false)}
+                  className="px-6 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg font-semibold transition-colors"
                 >
-                  {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-                  <Save className="h-4 w-4" />
-                  <span>{editingSeries ? 'Cập nhật' : 'Tạo mới'}</span>
+                  Hủy
                 </button>
               </div>
             </div>
@@ -1113,26 +1020,31 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         </div>
       )}
 
-      {/* Episode Add Modal */}
-      {isAddEpisodeModalOpen && selectedSeries && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      {/* Episode Modal - Z-INDEX CAO */}
+      {isEpisodeModalOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="bg-gray-900 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative border border-gray-700">
-            <div className="p-6 border-b border-gray-700">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-white">
-                  Thêm Episode Mới - {selectedSeries.title}
-                </h2>
-                <button
-                  onClick={() => setIsAddEpisodeModalOpen(false)}
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  <X className="h-6 w-6" />
-                </button>
-              </div>
+            {/* Close Button */}
+            <button
+              onClick={() => setIsEpisodeModalOpen(false)}
+              className="absolute top-4 right-4 z-10 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
+            >
+              <X className="h-6 w-6" />
+            </button>
+
+            {/* Header */}
+            <div className="bg-gradient-to-r from-purple-600 to-pink-600 p-6 rounded-t-2xl">
+              <h2 className="text-2xl font-bold text-white">
+                {editingItem ? 'Chỉnh Sửa Episode' : 'Thêm Episode Mới'}
+              </h2>
+              {selectedSeries && (
+                <p className="text-purple-100 mt-1">{selectedSeries.title}</p>
+              )}
             </div>
 
-            <div className="p-6 space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Form */}
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Số tập *
@@ -1142,10 +1054,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                     value={episodeForm.number}
                     onChange={(e) => setEpisodeForm(prev => ({ ...prev, number: parseInt(e.target.value) }))}
                     className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    min="1"
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Thời lượng
@@ -1160,37 +1070,35 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Tên tập (Tiếng Anh) *
-                  </label>
-                  <input
-                    type="text"
-                    value={episodeForm.title}
-                    onChange={(e) => setEpisodeForm(prev => ({ ...prev, title: e.target.value }))}
-                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Episode title"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Tên tập (Tiếng Việt) *
-                  </label>
-                  <input
-                    type="text"
-                    value={episodeForm.titleVietnamese}
-                    onChange={(e) => setEpisodeForm(prev => ({ ...prev, titleVietnamese: e.target.value }))}
-                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Tên tập tiếng Việt"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Tên tập (Tiếng Anh) *
+                </label>
+                <input
+                  type="text"
+                  value={episodeForm.title}
+                  onChange={(e) => setEpisodeForm(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Episode title"
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Mô tả tập
+                  Tên tập (Tiếng Việt) *
+                </label>
+                <input
+                  type="text"
+                  value={episodeForm.titleVietnamese}
+                  onChange={(e) => setEpisodeForm(prev => ({ ...prev, titleVietnamese: e.target.value }))}
+                  className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Tên tập tiếng Việt"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Mô tả
                 </label>
                 <textarea
                   value={episodeForm.description}
@@ -1201,20 +1109,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Thumbnail URL
-                  </label>
-                  <input
-                    type="url"
-                    value={episodeForm.thumbnail}
-                    onChange={(e) => setEpisodeForm(prev => ({ ...prev, thumbnail: e.target.value }))}
-                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="https://example.com/episode-thumbnail.jpg"
-                  />
-                </div>
-
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Ngày phát hành
@@ -1226,39 +1121,51 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                     className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Đánh giá (0-10)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="10"
+                    value={episodeForm.rating}
+                    onChange={(e) => setEpisodeForm(prev => ({ ...prev, rating: parseFloat(e.target.value) }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Đánh giá (0-10)
+                  Thumbnail URL
                 </label>
                 <input
-                  type="number"
-                  value={episodeForm.rating}
-                  onChange={(e) => setEpisodeForm(prev => ({ ...prev, rating: parseFloat(e.target.value) }))}
+                  type="url"
+                  value={episodeForm.thumbnail}
+                  onChange={(e) => setEpisodeForm(prev => ({ ...prev, thumbnail: e.target.value }))}
                   className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  min="0"
-                  max="10"
-                  step="0.1"
+                  placeholder="https://example.com/episode-thumbnail.jpg"
                 />
               </div>
 
               {/* Action Buttons */}
-              <div className="flex justify-end space-x-4 pt-6 border-t border-gray-700">
+              <div className="flex space-x-4 pt-4">
                 <button
-                  onClick={() => setIsAddEpisodeModalOpen(false)}
-                  className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                  onClick={handleCreateEpisode}
+                  disabled={isLoading || !episodeForm.title || !episodeForm.titleVietnamese}
+                  className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 text-white py-3 rounded-lg font-semibold transition-colors flex items-center justify-center space-x-2"
                 >
-                  Hủy
+                  {isLoading && <Loader2 className="h-5 w-5 animate-spin" />}
+                  <Save className="h-5 w-5" />
+                  <span>{editingItem ? 'Cập Nhật' : 'Tạo Episode'}</span>
                 </button>
                 <button
-                  onClick={handleSaveEpisode}
-                  disabled={isLoading || !episodeForm.title || !episodeForm.titleVietnamese}
-                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg transition-colors flex items-center space-x-2"
+                  onClick={() => setIsEpisodeModalOpen(false)}
+                  className="px-6 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg font-semibold transition-colors"
                 >
-                  {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-                  <Save className="h-4 w-4" />
-                  <span>Tạo Episode</span>
+                  Hủy
                 </button>
               </div>
             </div>
@@ -1276,29 +1183,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
             setSelectedEpisode(null);
           }}
           onVideoUploaded={(videoData) => {
-            // Add to videos data
-            const newVideo: VideoData = {
-              id: videoData.id,
-              title: videoData.title,
-              series_id: selectedSeries.id,
-              episode_number: selectedEpisode.number,
-              status: 'completed',
-              duration: videoData.duration || 0,
-              file_size: videoData.fileSize || 0,
-              uploadedAt: videoData.uploadedAt || new Date().toISOString(),
-              hlsUrl: videoData.hlsUrl,
-              total_segments: videoData.totalSegments || 0,
-              processing_progress: 100,
-              original_filename: videoData.originalFilename || '',
-              safe_filename: videoData.safeFilename || '',
-              video_path: videoData.videoPath || '',
-              hls_manifest_path: videoData.hlsManifestPath || null,
-              seriesTitle: selectedSeries.title,
-              seriesTitleVietnamese: selectedSeries.titleVietnamese
-            };
-            
-            setVideosData(prev => [...prev, newVideo]);
-            loadEpisodesData(selectedSeries.id); // Reload episodes to update video status
+            loadVideosData();
+            if (selectedSeries) {
+              loadEpisodesForSeries(selectedSeries.id);
+            }
             setIsUploadModalOpen(false);
             setSelectedSeries(null);
             setSelectedEpisode(null);
