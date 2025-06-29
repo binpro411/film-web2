@@ -284,7 +284,7 @@ app.get('/', (req, res) => {
 
 // ===== SERIES MANAGEMENT ENDPOINTS =====
 
-// Get all series
+// Get all series with episodes info
 app.get('/api/series', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -462,7 +462,7 @@ app.delete('/api/series/:id', async (req, res) => {
 
 // ===== EPISODE MANAGEMENT ENDPOINTS =====
 
-// Get episodes for a series
+// Get episodes for a series with video info
 app.get('/api/series/:seriesId/episodes', async (req, res) => {
   const { seriesId } = req.params;
 
@@ -471,38 +471,48 @@ app.get('/api/series/:seriesId/episodes', async (req, res) => {
       SELECT e.*, 
              v.id as video_id,
              v.status as video_status,
-             v.hls_manifest_path
+             v.hls_manifest_path,
+             v.duration as video_duration
       FROM episodes e
-      LEFT JOIN videos v ON e.series_id = v.series_id AND e.number = v.episode_number
+      LEFT JOIN videos v ON e.series_id = v.series_id AND e.number = v.episode_number AND v.status = 'completed'
       WHERE e.series_id = $1
       ORDER BY e.number ASC
     `, [seriesId]);
 
-    const episodes = result.rows.map(row => ({
-      id: row.id,
-      seriesId: row.series_id,
-      number: row.number,
-      title: row.title,
-      titleVietnamese: row.title_vietnamese,
-      description: row.description,
-      duration: row.duration,
-      thumbnail: row.thumbnail,
-      releaseDate: row.release_date,
-      rating: row.rating,
-      watched: row.watched,
-      watchProgress: row.watch_progress,
-      lastWatchedAt: row.last_watched_at,
-      guestCast: row.guest_cast,
-      directorNotes: row.director_notes,
-      hasBehindScenes: row.has_behind_scenes,
-      hasCommentary: row.has_commentary,
-      sourceUrl: row.source_url,
-      hasVideo: !!row.video_id,
-      videoStatus: row.video_status,
-      hlsUrl: row.hls_manifest_path ? 
-        `/segments/${path.relative(SEGMENTS_DIR, path.dirname(row.hls_manifest_path))}/playlist.m3u8` : 
-        null
-    }));
+    const episodes = result.rows.map(row => {
+      // Create HLS URL if video exists
+      let hlsUrl = null;
+      if (row.hls_manifest_path) {
+        const relativePath = path.relative(SEGMENTS_DIR, path.dirname(row.hls_manifest_path));
+        hlsUrl = `/segments/${relativePath}/playlist.m3u8`;
+      }
+
+      return {
+        id: row.id,
+        seriesId: row.series_id,
+        number: row.number,
+        title: row.title,
+        titleVietnamese: row.title_vietnamese,
+        description: row.description,
+        duration: row.duration,
+        thumbnail: row.thumbnail,
+        releaseDate: row.release_date,
+        rating: row.rating,
+        watched: row.watched,
+        watchProgress: row.watch_progress,
+        lastWatchedAt: row.last_watched_at,
+        guestCast: row.guest_cast,
+        directorNotes: row.director_notes,
+        hasBehindScenes: row.has_behind_scenes,
+        hasCommentary: row.has_commentary,
+        sourceUrl: row.source_url,
+        hasVideo: !!row.video_id,
+        videoStatus: row.video_status,
+        hlsUrl: hlsUrl,
+        videoId: row.video_id,
+        videoDuration: row.video_duration
+      };
+    });
 
     res.json({
       success: true,
