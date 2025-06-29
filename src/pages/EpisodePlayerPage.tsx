@@ -170,7 +170,7 @@ const EpisodePlayerPage: React.FC = () => {
         console.log(`✅ Found episode ${epNum}: "${episode.title}"`);
         setCurrentEpisode(episode);
         
-        // NEW: Load video data using series slug and episode number
+        // FIXED: Load video data using series slug instead of ID
         loadVideoData(seriesSlug, epNum);
       } else {
         console.error('❌ API Error:', data.error);
@@ -184,7 +184,7 @@ const EpisodePlayerPage: React.FC = () => {
     }
   };
 
-  // NEW: Load video data using series slug and episode number
+  // FIXED: Load video data using series slug and episode number
   const loadVideoData = useCallback(async (slug: string, epNumber: number) => {
     const videoKey = `${slug}-${epNumber}`;
     
@@ -199,7 +199,7 @@ const EpisodePlayerPage: React.FC = () => {
     try {
       console.log(`🔍 Loading video for series slug "${slug}" episode ${epNumber}`);
       
-      // NEW: Use the new API endpoint that matches server
+      // FIXED: Use the correct API endpoint that matches server
       const response = await fetch(`http://localhost:3001/api/videos/${slug}/${epNumber}`);
       const data = await response.json();
       
@@ -515,7 +515,7 @@ const EpisodePlayerPage: React.FC = () => {
               <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
               <p className="text-white text-xl">Đang kiểm tra video...</p>
               <p className="text-gray-300 text-sm mt-2">Tìm kiếm video cho tập {episodeNumber}...</p>
-              <p className="text-gray-400 text-xs mt-1">NEW: Using series slug "{seriesSlug}"</p>
+              <p className="text-gray-400 text-xs mt-1">FIXED: Using series slug "{seriesSlug}"</p>
             </div>
           </div>
         ) : loadError ? (
