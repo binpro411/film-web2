@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Header from './components/Header';
 import Hero from './components/Hero';
 import MovieGrid from './components/MovieGrid';
@@ -32,24 +32,80 @@ function AppContent() {
   const [selectedVipPlan, setSelectedVipPlan] = useState<VipPlan | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Database series state
+  const [dbSeries, setDbSeries] = useState<any[]>([]);
+  const [isLoadingSeries, setIsLoadingSeries] = useState(true);
+
+  // Load series from database
+  useEffect(() => {
+    loadSeriesFromDB();
+  }, []);
+
+  const loadSeriesFromDB = async () => {
+    try {
+      setIsLoadingSeries(true);
+      const response = await fetch('http://localhost:3001/api/series');
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('✅ Loaded series from database:', data.series);
+        setDbSeries(data.series);
+      } else {
+        console.error('❌ Failed to load series:', data.error);
+      }
+    } catch (error) {
+      console.error('❌ Error loading series:', error);
+    } finally {
+      setIsLoadingSeries(false);
+    }
+  };
+
+  // Convert database series to Movie format for compatibility
+  const convertDbSeriesToMovies = (dbSeriesData: any[]): Movie[] => {
+    return dbSeriesData.map(series => ({
+      id: series.id,
+      title: series.title,
+      titleVietnamese: series.title, // Since we removed English title
+      description: series.description || '',
+      year: series.year,
+      duration: series.totalDuration || '24 phút/tập',
+      rating: series.rating,
+      genre: series.genre || [],
+      director: series.director || '',
+      studio: series.studio || '',
+      thumbnail: series.thumbnail || 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg?auto=compress&cs=tinysrgb&w=400',
+      banner: series.banner || 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg?auto=compress&cs=tinysrgb&w=1200',
+      trailer: series.trailer || '',
+      featured: series.featured || false,
+      new: series.new || false,
+      popular: series.popular || false,
+      type: 'series' as const,
+      episodeCount: series.episodeCount || 0,
+      airDay: series.airDay as any,
+      airTime: series.airTime
+    }));
+  };
+
+  // Use database series instead of static data
+  const allMovies = convertDbSeriesToMovies(dbSeries);
+
   // Filter movies based on search query
   const filteredMovies = useMemo(() => {
-    if (!searchQuery.trim()) return movies;
+    if (!searchQuery.trim()) return allMovies;
     
     const query = searchQuery.toLowerCase();
-    return movies.filter(movie => 
+    return allMovies.filter(movie => 
       movie.title.toLowerCase().includes(query) ||
       movie.titleVietnamese.includes(query) ||
       movie.genre.some(g => g.toLowerCase().includes(query)) ||
       movie.director.toLowerCase().includes(query)
     );
-  }, [searchQuery]);
+  }, [searchQuery, allMovies]);
 
   // Categorize movies
   const featuredMovies = filteredMovies.filter(movie => movie.featured);
   const newMovies = filteredMovies.filter(movie => movie.new);
   const scheduledMovies = filteredMovies.filter(movie => movie.airDay); // Movies with air schedule
-  const allMovies = filteredMovies;
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -139,6 +195,23 @@ function AppContent() {
     setIsPaymentModalOpen(false);
     setSelectedVipPlan(null);
   };
+
+  const handleAdminPanelClose = () => {
+    setIsAdminPanelOpen(false);
+    // Reload series data when admin panel closes
+    loadSeriesFromDB();
+  };
+
+  if (isLoadingSeries) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-white text-xl">Đang tải dữ liệu...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-900">
@@ -249,7 +322,7 @@ function AppContent() {
 
       <AdminPanel
         isOpen={isAdminPanelOpen}
-        onClose={() => setIsAdminPanelOpen(false)}
+        onClose={handleAdminPanelClose}
       />
     </div>
   );

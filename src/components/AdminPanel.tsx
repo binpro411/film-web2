@@ -34,7 +34,6 @@ interface AdminPanelProps {
 
 interface SeriesFormData {
   title: string;
-  titleVietnamese: string;
   description: string;
   year: number;
   rating: number;
@@ -56,7 +55,6 @@ interface SeriesFormData {
 interface EpisodeFormData {
   number: number;
   title: string;
-  titleVietnamese: string;
   description: string;
   duration: string;
   thumbnail: string;
@@ -84,7 +82,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   // Form states
   const [seriesForm, setSeriesForm] = useState<SeriesFormData>({
     title: '',
-    titleVietnamese: '',
     description: '',
     year: new Date().getFullYear(),
     rating: 0,
@@ -106,7 +103,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   const [episodeForm, setEpisodeForm] = useState<EpisodeFormData>({
     number: 1,
     title: '',
-    titleVietnamese: '',
     description: '',
     duration: '',
     thumbnail: '',
@@ -145,6 +141,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
       
       if (data.success) {
         setSeriesData(data.series);
+        console.log('✅ Loaded series data:', data.series);
       } else {
         setError('Không thể tải dữ liệu series');
       }
@@ -205,23 +202,55 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   const handleCreateSeries = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch('http://localhost:3001/api/series', {
-        method: 'POST',
+      setError(null);
+
+      // Prepare data for API
+      const apiData = {
+        title: seriesForm.title,
+        titleVietnamese: seriesForm.title, // Use same title since we removed English title
+        description: seriesForm.description,
+        year: seriesForm.year,
+        rating: seriesForm.rating,
+        genre: seriesForm.genre,
+        director: seriesForm.director,
+        studio: seriesForm.studio,
+        thumbnail: seriesForm.thumbnail,
+        banner: seriesForm.banner,
+        trailer: seriesForm.trailer,
+        featured: seriesForm.featured,
+        new: seriesForm.new,
+        popular: seriesForm.popular,
+        totalDuration: seriesForm.totalDuration,
+        status: seriesForm.status,
+        airDay: seriesForm.airDay,
+        airTime: seriesForm.airTime
+      };
+
+      const url = editingItem 
+        ? `http://localhost:3001/api/series/${editingItem.id}`
+        : 'http://localhost:3001/api/series';
+      
+      const method = editingItem ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(seriesForm)
+        body: JSON.stringify(apiData)
       });
 
       const data = await response.json();
       
       if (data.success) {
-        await loadSeriesData();
+        console.log('✅ Series saved successfully:', data.series);
+        await loadSeriesData(); // Reload data to show new series
         setIsSeriesModalOpen(false);
         resetSeriesForm();
+        setEditingItem(null);
       } else {
-        setError(data.error || 'Không thể tạo series');
+        setError(data.error || 'Không thể lưu series');
       }
     } catch (error) {
-      console.error('Error creating series:', error);
+      console.error('Error saving series:', error);
       setError('Lỗi kết nối server');
     } finally {
       setIsLoading(false);
@@ -233,16 +262,30 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
 
     try {
       setIsLoading(true);
+      setError(null);
+
+      const apiData = {
+        number: episodeForm.number,
+        title: episodeForm.title,
+        titleVietnamese: episodeForm.title, // Use same title
+        description: episodeForm.description,
+        duration: episodeForm.duration,
+        thumbnail: episodeForm.thumbnail,
+        releaseDate: episodeForm.releaseDate,
+        rating: episodeForm.rating
+      };
+
       const response = await fetch(`http://localhost:3001/api/series/${selectedSeries.id}/episodes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(episodeForm)
+        body: JSON.stringify(apiData)
       });
 
       const data = await response.json();
       
       if (data.success) {
         await loadEpisodesForSeries(selectedSeries.id);
+        await loadSeriesData(); // Refresh series data to update episode count
         setIsEpisodeModalOpen(false);
         resetEpisodeForm();
       } else {
@@ -289,6 +332,41 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const handleDeleteSeries = async (seriesId: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa series này? Tất cả episodes và videos sẽ bị xóa!')) {
+      return;
+    }
+
+    if (!confirm('Xác nhận lần 2: Hành động này không thể hoàn tác!')) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const response = await fetch(`http://localhost:3001/api/series/${seriesId}`, {
+        method: 'DELETE'
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await loadSeriesData();
+        await loadVideosData();
+        if (selectedSeries?.id === seriesId) {
+          setSelectedSeries(null);
+          setEpisodesData([]);
+        }
+      } else {
+        setError(data.error || 'Không thể xóa series');
+      }
+    } catch (error) {
+      console.error('Error deleting series:', error);
+      setError('Lỗi kết nối server');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleVideoUpload = (seriesId: string, episodeNumber: number) => {
     const targetSeries = seriesData.find(s => s.id === seriesId);
     if (targetSeries) {
@@ -301,7 +379,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   const resetSeriesForm = () => {
     setSeriesForm({
       title: '',
-      titleVietnamese: '',
       description: '',
       year: new Date().getFullYear(),
       rating: 0,
@@ -325,7 +402,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     setEpisodeForm({
       number: 1,
       title: '',
-      titleVietnamese: '',
       description: '',
       duration: '',
       thumbnail: '',
@@ -473,8 +549,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
       <div className="space-y-4">
         {seriesData
           .filter(series => 
-            series.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            series.titleVietnamese.includes(searchQuery)
+            series.title.toLowerCase().includes(searchQuery.toLowerCase())
           )
           .map((series) => (
             <div key={series.id} className="bg-gray-800 rounded-xl p-6">
@@ -487,7 +562,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                   />
                   <div>
                     <h3 className="text-white font-semibold text-xl mb-1">{series.title}</h3>
-                    <p className="text-blue-300 mb-2">{series.titleVietnamese}</p>
                     <div className="flex items-center space-x-4 text-sm text-gray-400 mb-2">
                       <span>{series.year}</span>
                       <span>{series.episodeCount} tập</span>
@@ -525,7 +599,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                       setEditingItem(series);
                       setSeriesForm({
                         title: series.title,
-                        titleVietnamese: series.titleVietnamese,
                         description: series.description,
                         year: series.year,
                         rating: series.rating,
@@ -550,11 +623,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                     <Edit className="h-4 w-4" />
                   </button>
                   <button
-                    onClick={() => {
-                      if (confirm('Bạn có chắc chắn muốn xóa series này?')) {
-                        // Handle delete series
-                      }
-                    }}
+                    onClick={() => handleDeleteSeries(series.id)}
                     className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm transition-colors"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -621,7 +690,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                                   setEpisodeForm({
                                     number: episode.number,
                                     title: episode.title,
-                                    titleVietnamese: episode.titleVietnamese,
                                     description: episode.description,
                                     duration: episode.duration,
                                     thumbnail: episode.thumbnail,
@@ -637,7 +705,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                             </div>
                           </div>
                           <p className="text-gray-300 text-sm mb-1">{episode.title}</p>
-                          <p className="text-blue-300 text-xs mb-2">{episode.titleVietnamese}</p>
                           <div className="flex items-center justify-between text-xs text-gray-400">
                             <span>{episode.duration}</span>
                             <div className="flex items-center space-x-2">
@@ -758,31 +825,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
             {/* Form */}
             <div className="p-6 space-y-6">
               {/* Basic Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Tên Series (Tiếng Anh) *
-                  </label>
-                  <input
-                    type="text"
-                    value={seriesForm.title}
-                    onChange={(e) => setSeriesForm(prev => ({ ...prev, title: e.target.value }))}
-                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="A Record of Mortal's Journey to Immortality"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Tên Series (Tiếng Việt) *
-                  </label>
-                  <input
-                    type="text"
-                    value={seriesForm.titleVietnamese}
-                    onChange={(e) => setSeriesForm(prev => ({ ...prev, titleVietnamese: e.target.value }))}
-                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Phàm Nhân Tu Tiên"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Tên Series *
+                </label>
+                <input
+                  type="text"
+                  value={seriesForm.title}
+                  onChange={(e) => setSeriesForm(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Phàm Nhân Tu Tiên"
+                />
               </div>
 
               {/* Description */}
@@ -912,26 +965,26 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Thumbnail URL
+                    Thumbnail (URL hoặc Upload)
                   </label>
                   <input
                     type="url"
                     value={seriesForm.thumbnail}
                     onChange={(e) => setSeriesForm(prev => ({ ...prev, thumbnail: e.target.value }))}
                     className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="https://example.com/thumbnail.jpg"
+                    placeholder="https://example.com/thumbnail.jpg hoặc upload file"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Banner URL
+                    Banner (URL hoặc Upload)
                   </label>
                   <input
                     type="url"
                     value={seriesForm.banner}
                     onChange={(e) => setSeriesForm(prev => ({ ...prev, banner: e.target.value }))}
                     className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="https://example.com/banner.jpg"
+                    placeholder="https://example.com/banner.jpg hoặc upload file"
                   />
                 </div>
               </div>
@@ -955,7 +1008,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Giờ phát sóng
+                    Giờ phát sóng (24H)
                   </label>
                   <input
                     type="time"
@@ -1001,7 +1054,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
               <div className="flex space-x-4 pt-4">
                 <button
                   onClick={handleCreateSeries}
-                  disabled={isLoading || !seriesForm.title || !seriesForm.titleVietnamese}
+                  disabled={isLoading || !seriesForm.title}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white py-3 rounded-lg font-semibold transition-colors flex items-center justify-center space-x-2"
                 >
                   {isLoading && <Loader2 className="h-5 w-5 animate-spin" />}
@@ -1072,27 +1125,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Tên tập (Tiếng Anh) *
+                  Tên tập *
                 </label>
                 <input
                   type="text"
                   value={episodeForm.title}
                   onChange={(e) => setEpisodeForm(prev => ({ ...prev, title: e.target.value }))}
                   className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Episode title"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Tên tập (Tiếng Việt) *
-                </label>
-                <input
-                  type="text"
-                  value={episodeForm.titleVietnamese}
-                  onChange={(e) => setEpisodeForm(prev => ({ ...prev, titleVietnamese: e.target.value }))}
-                  className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Tên tập tiếng Việt"
+                  placeholder="Tên tập phim"
                 />
               </div>
 
@@ -1139,14 +1179,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Thumbnail URL
+                  Thumbnail (URL hoặc Upload)
                 </label>
                 <input
                   type="url"
                   value={episodeForm.thumbnail}
                   onChange={(e) => setEpisodeForm(prev => ({ ...prev, thumbnail: e.target.value }))}
                   className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="https://example.com/episode-thumbnail.jpg"
+                  placeholder="https://example.com/episode-thumbnail.jpg hoặc upload file"
                 />
               </div>
 
@@ -1154,7 +1194,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
               <div className="flex space-x-4 pt-4">
                 <button
                   onClick={handleCreateEpisode}
-                  disabled={isLoading || !episodeForm.title || !episodeForm.titleVietnamese}
+                  disabled={isLoading || !episodeForm.title}
                   className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 text-white py-3 rounded-lg font-semibold transition-colors flex items-center justify-center space-x-2"
                 >
                   {isLoading && <Loader2 className="h-5 w-5 animate-spin" />}
