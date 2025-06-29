@@ -104,7 +104,7 @@ const setupDatabase = async () => {
     `);
     console.log('✅ Episodes table created');
 
-    // Create videos table (updated)
+    // Create videos table (UPDATED with series_title column)
     await client.query(`
       CREATE TABLE IF NOT EXISTS videos (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -122,12 +122,28 @@ const setupDatabase = async () => {
         status VARCHAR(20) DEFAULT 'uploading',
         processing_progress INTEGER DEFAULT 0,
         total_segments INTEGER DEFAULT 0,
+        series_title VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(series_id, episode_number)
       )
     `);
-    console.log('✅ Videos table updated');
+    console.log('✅ Videos table created with series_title column');
+
+    // Check if series_title column exists, if not add it
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'videos' AND column_name = 'series_title'
+        ) THEN
+          ALTER TABLE videos ADD COLUMN series_title VARCHAR(255);
+          RAISE NOTICE 'Added series_title column to videos table';
+        END IF;
+      END $$;
+    `);
+    console.log('✅ Ensured series_title column exists in videos table');
 
     // Create segments table
     await client.query(`
@@ -168,6 +184,7 @@ const setupDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_episodes_series_id ON episodes(series_id);
       CREATE INDEX IF NOT EXISTS idx_episodes_number ON episodes(series_id, number);
       CREATE INDEX IF NOT EXISTS idx_videos_series_episode ON videos(series_id, episode_number);
+      CREATE INDEX IF NOT EXISTS idx_videos_series_title ON videos(series_title);
       CREATE INDEX IF NOT EXISTS idx_segments_video_id ON segments(video_id);
       CREATE INDEX IF NOT EXISTS idx_watch_progress_user_video ON watch_progress(user_id, video_id);
     `);
