@@ -26,6 +26,7 @@ const EpisodePlayerPage: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasStartedWatching, setHasStartedWatching] = useState(false);
   const [actualResumeTime, setActualResumeTime] = useState(0);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   const { user, getResumePrompt } = useAuth();
 
@@ -46,36 +47,59 @@ const EpisodePlayerPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
 
-      console.log(`🔍 Looking for series with slug: "${seriesSlug}", episode: ${episodeNumber}`);
+      console.log(`🔍 EpisodePlayerPage: Looking for series with slug: "${seriesSlug}", episode: ${episodeNumber}`);
 
       // Get all series from database
       const response = await fetch('http://localhost:3001/api/series');
       const data = await response.json();
       
+      console.log('📊 API Response:', data);
+      
       if (data.success) {
-        console.log('📊 Available series:', data.series.map((s: any) => ({
-          title: s.title,
-          slug: createSlug(s.title)
-        })));
+        console.log('📊 Available series from database:', data.series.length);
+        
+        // Debug: Show all series with their generated slugs
+        const seriesWithSlugs = data.series.map((s: any) => {
+          const generatedSlug = createSlug(s.title);
+          console.log(`🔗 Series: "${s.title}" → slug: "${generatedSlug}"`);
+          return {
+            id: s.id,
+            title: s.title,
+            slug: generatedSlug,
+            originalData: s
+          };
+        });
 
-        // Find series by slug
+        setDebugInfo({
+          searchSlug: seriesSlug,
+          searchEpisode: episodeNumber,
+          availableSeries: seriesWithSlugs,
+          totalSeries: data.series.length
+        });
+
+        // Find series by slug - CASE INSENSITIVE
         const foundSeries = data.series.find((s: any) => {
           const generatedSlug = createSlug(s.title);
-          console.log(`🔗 Comparing "${generatedSlug}" with "${seriesSlug}"`);
-          return generatedSlug === seriesSlug;
+          const match = generatedSlug.toLowerCase() === seriesSlug?.toLowerCase();
+          console.log(`🔗 Comparing "${generatedSlug}" with "${seriesSlug}" → ${match ? '✅ MATCH' : '❌ NO MATCH'}`);
+          return match;
         });
 
         if (!foundSeries) {
           console.error(`❌ No series found for slug: "${seriesSlug}"`);
-          setError('Series không tồn tại');
+          console.log('🔍 Available slugs:', seriesWithSlugs.map(s => s.slug));
+          setError(`Series không tồn tại. Slug tìm kiếm: "${seriesSlug}"`);
           return;
         }
 
-        console.log(`✅ Found series: "${foundSeries.title}"`);
+        console.log(`✅ Found series: "${foundSeries.title}" (ID: ${foundSeries.id})`);
 
         // Load episodes for this series
+        console.log(`📺 Loading episodes for series ID: ${foundSeries.id}`);
         const episodesResponse = await fetch(`http://localhost:3001/api/series/${foundSeries.id}/episodes`);
         const episodesData = await episodesResponse.json();
+        
+        console.log('📺 Episodes API Response:', episodesData);
         
         const episodes: Episode[] = episodesData.success ? episodesData.episodes.map((ep: any) => ({
           id: ep.id,
@@ -100,10 +124,12 @@ const EpisodePlayerPage: React.FC = () => {
           hasVideo: ep.hasVideo || false
         })) : [];
 
+        console.log(`📺 Loaded ${episodes.length} episodes`);
+
         const seriesData: Series = {
           id: foundSeries.id,
           title: foundSeries.title,
-          titleVietnamese: foundSeries.titleVietnamese || foundSeries.title,
+          titleVietnamese: foundSeries.title_vietnamese || foundSeries.title,
           description: foundSeries.description || '',
           year: foundSeries.year,
           rating: foundSeries.rating,
@@ -118,7 +144,7 @@ const EpisodePlayerPage: React.FC = () => {
           popular: foundSeries.popular || false,
           episodeCount: episodes.length,
           episodes: episodes,
-          totalDuration: foundSeries.totalDuration || '24 phút/tập',
+          totalDuration: foundSeries.total_duration || '24 phút/tập',
           status: foundSeries.status || 'ongoing',
           comments: [],
           similarSeries: [],
@@ -129,11 +155,15 @@ const EpisodePlayerPage: React.FC = () => {
 
         // Find current episode
         const epNum = parseInt(episodeNumber);
+        console.log(`🔍 Looking for episode number: ${epNum}`);
+        console.log(`📺 Available episodes:`, episodes.map(ep => ({ number: ep.number, title: ep.title })));
+        
         const episode = episodes.find(ep => ep.number === epNum);
         
         if (!episode) {
           console.error(`❌ Episode ${episodeNumber} not found in series "${foundSeries.title}"`);
-          setError(`Tập ${episodeNumber} không tồn tại`);
+          console.log(`📺 Available episode numbers:`, episodes.map(ep => ep.number));
+          setError(`Tập ${episodeNumber} không tồn tại trong series này`);
           return;
         }
 
@@ -143,10 +173,11 @@ const EpisodePlayerPage: React.FC = () => {
         // Load video data for this episode
         loadVideoData(foundSeries.id, epNum);
       } else {
-        setError('Không thể tải dữ liệu series');
+        console.error('❌ API Error:', data.error);
+        setError('Không thể tải dữ liệu series từ database');
       }
     } catch (error) {
-      console.error('Error loading series and episode:', error);
+      console.error('❌ Network Error loading series and episode:', error);
       setError('Lỗi kết nối server');
     } finally {
       setIsLoading(false);
@@ -346,6 +377,7 @@ const EpisodePlayerPage: React.FC = () => {
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-white text-xl">Đang tải episode...</p>
           <p className="text-gray-400 text-sm mt-2">Slug: {seriesSlug}, Episode: {episodeNumber}</p>
+          <p className="text-gray-400 text-xs mt-1">Đang kết nối database...</p>
         </div>
       </div>
     );
@@ -354,20 +386,66 @@ const EpisodePlayerPage: React.FC = () => {
   if (error || !series || !currentEpisode) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
+        <div className="text-center max-w-4xl mx-auto p-8">
           <div className="text-red-400 text-6xl mb-4">⚠️</div>
-          <h1 className="text-4xl font-bold text-white mb-4">Episode không tồn tại</h1>
-          <p className="text-xl text-gray-300 mb-4">{error || 'Không tìm thấy episode này'}</p>
-          <p className="text-gray-400 text-sm mb-8">
-            Slug: "{seriesSlug}", Episode: {episodeNumber}
-          </p>
-          <button
-            onClick={handleGoBack}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors flex items-center space-x-2 mx-auto"
-          >
-            <ArrowLeft className="h-5 w-5" />
-            <span>Quay Lại</span>
-          </button>
+          <h1 className="text-4xl font-bold text-white mb-4">404</h1>
+          <h2 className="text-2xl font-bold text-white mb-4">Trang không tồn tại</h2>
+          <p className="text-xl text-gray-300 mb-4">Xin lỗi, trang bạn đang tìm kiếm không tồn tại hoặc đã bị di chuyển.</p>
+          
+          {/* Debug Information */}
+          {debugInfo && (
+            <div className="bg-gray-800 rounded-lg p-6 mb-8 text-left">
+              <h3 className="text-white font-semibold mb-4">🔍 Debug Information:</h3>
+              <div className="space-y-2 text-sm">
+                <p className="text-gray-300">
+                  <span className="text-blue-400">Slug tìm kiếm:</span> "{debugInfo.searchSlug}"
+                </p>
+                <p className="text-gray-300">
+                  <span className="text-blue-400">Episode tìm kiếm:</span> {debugInfo.searchEpisode}
+                </p>
+                <p className="text-gray-300">
+                  <span className="text-blue-400">Tổng series trong DB:</span> {debugInfo.totalSeries}
+                </p>
+                <p className="text-gray-300">
+                  <span className="text-red-400">Lỗi:</span> {error}
+                </p>
+                <div className="text-gray-300">
+                  <span className="text-blue-400">Series có sẵn:</span>
+                  <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                    {debugInfo.availableSeries.map((s: any, index: number) => (
+                      <div key={index} className="text-xs bg-gray-700 p-2 rounded">
+                        <span className="text-green-400">"{s.title}"</span> → 
+                        <span className="text-yellow-400"> "{s.slug}"</span>
+                        <button
+                          onClick={() => navigate(`/movie/${s.slug}`)}
+                          className="ml-2 text-blue-400 hover:text-blue-300 underline"
+                        >
+                          Thử link này
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <button
+              onClick={handleGoBack}
+              className="bg-gray-700 hover:bg-gray-600 text-white px-8 py-4 rounded-lg font-semibold transition-colors flex items-center justify-center space-x-2"
+            >
+              <ArrowLeft className="h-5 w-5" />
+              <span>Quay Lại</span>
+            </button>
+            
+            <button
+              onClick={() => navigate('/')}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors"
+            >
+              Về Trang Chủ
+            </button>
+          </div>
         </div>
       </div>
     );
